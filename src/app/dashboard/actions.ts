@@ -404,7 +404,49 @@ async function generateReceipts(
   }
 }
 
-export async function closeCycle(
+// ---------------------------------------------------------------------------
+// Cycle close voting
+// ---------------------------------------------------------------------------
+
+export type CloseRequest = {
+  id: string;
+  cycle_id: string;
+  requested_by: string;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+};
+
+export type CloseApproval = {
+  id: string;
+  request_id: string;
+  user_id: string;
+  approved: boolean;
+  created_at: string;
+};
+
+export async function getCloseRequestForCycle(
+  cycleId: string,
+): Promise<{ request: CloseRequest | null; approvals: CloseApproval[] }> {
+  const supabase = await createClient();
+
+  const { data: request } = await supabase
+    .from("cycle_close_requests")
+    .select("*")
+    .eq("cycle_id", cycleId)
+    .eq("status", "pending")
+    .single();
+
+  if (!request) return { request: null, approvals: [] };
+
+  const { data: approvals } = await supabase
+    .from("cycle_close_approvals")
+    .select("*")
+    .eq("request_id", request.id);
+
+  return { request, approvals: approvals ?? [] };
+}
+
+export async function requestCycleClose(
   cycleId: string,
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
@@ -413,7 +455,6 @@ export async function closeCycle(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
-  // Get the cycle and verify ownership
   const { data: cycle } = await supabase
     .from("billing_cycles")
     .select("id, household_id, status")
@@ -423,26 +464,134 @@ export async function closeCycle(
   if (!cycle) return { error: "Cycle not found." };
   if (cycle.status !== "open") return { error: "Cycle is already closed." };
 
-  // Verify user is owner
-  const { data: membership } = await supabase
-    .from("household_members")
-    .select("role")
-    .eq("household_id", cycle.household_id)
-    .eq("user_id", user.id)
+  // Check if a pending request already exists
+  const { data: existing } = await supabase
+    .from("cycle_close_requests")
+    .select("id")
+    .eq("cycle_id", cycleId)
+    .eq("status", "pending")
     .single();
 
-  if (!membership || membership.role !== "owner") {
-    return { error: "Only the household owner can close a cycle." };
-  }
+  if (existing) return { error: "A close request is already pending." };
 
-  // Get active member count
+  // Create the request
+  const { data: request, error: reqError } = await supabase
+    .from("cycle_close_requests")
+    .insert({
+      cycle_id: cycleId,
+      requested_by: user.id,
+      status: "pending",
+    })
+    .select()
+    .single();
+
+  if (reqError) return { error: reqError.message };
+
+  // Auto-approve for the requester
+  await supabase.from("cycle_close_approvals").insert({
+    request_id: request.id,
+    user_id: user.id,
+    approved: true,
+  });
+
+  // Check if all members already approved (single-member household)
   const { count } = await supabase
     .from("household_members")
     .select("*", { count: "exact", head: true })
     .eq("household_id", cycle.household_id)
     .is("left_at", null);
 
-  // Close the cycle
+  if (count === 1) {
+    return executeCycleClose(cycleId, cycle.household_id);
+  }
+
+  revalidatePath("/dashboard");
+  return { error: null };
+}
+
+export async function approveCycleClose(
+  requestId: string,
+  approved: boolean,
+): Promise<{ error: string | null; fullyApproved?: boolean }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  // Get the request
+  const { data: request } = await supabase
+    .from("cycle_close_requests")
+    .select("id, cycle_id, status")
+    .eq("id", requestId)
+    .single();
+
+  if (!request) return { error: "Request not found." };
+  if (request.status !== "pending") return { error: "Request is no longer pending." };
+
+  // Upsert the approval
+  const { error: approvalError } = await supabase
+    .from("cycle_close_approvals")
+    .upsert(
+      { request_id: requestId, user_id: user.id, approved },
+      { onConflict: "request_id,user_id" },
+    );
+
+  if (approvalError) return { error: approvalError.message };
+
+  if (!approved) {
+    // Reject the whole request
+    await supabase
+      .from("cycle_close_requests")
+      .update({ status: "rejected" })
+      .eq("id", requestId);
+    revalidatePath("/dashboard");
+    return { error: null };
+  }
+
+  // Check if all members approved
+  const { data: cycle } = await supabase
+    .from("billing_cycles")
+    .select("household_id")
+    .eq("id", request.cycle_id)
+    .single();
+
+  if (!cycle) return { error: "Cycle not found." };
+
+  const { count: memberCount } = await supabase
+    .from("household_members")
+    .select("*", { count: "exact", head: true })
+    .eq("household_id", cycle.household_id)
+    .is("left_at", null);
+
+  const { count: approvalCount } = await supabase
+    .from("cycle_close_approvals")
+    .select("*", { count: "exact", head: true })
+    .eq("request_id", requestId)
+    .eq("approved", true);
+
+  if ((approvalCount ?? 0) >= (memberCount ?? 0)) {
+    // All approved, close the cycle
+    const result = await executeCycleClose(request.cycle_id, cycle.household_id);
+    return { error: result.error, fullyApproved: true };
+  }
+
+  revalidatePath("/dashboard");
+  return { error: null };
+}
+
+async function executeCycleClose(
+  cycleId: string,
+  householdId: string,
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+
+  const { count } = await supabase
+    .from("household_members")
+    .select("*", { count: "exact", head: true })
+    .eq("household_id", householdId)
+    .is("left_at", null);
+
   const { error: closeError } = await supabase
     .from("billing_cycles")
     .update({
@@ -454,8 +603,14 @@ export async function closeCycle(
 
   if (closeError) return { error: closeError.message };
 
-  // Generate receipts
-  await generateReceipts(cycle.household_id, cycleId, count || 0);
+  // Mark request as approved
+  await supabase
+    .from("cycle_close_requests")
+    .update({ status: "approved" })
+    .eq("cycle_id", cycleId)
+    .eq("status", "pending");
+
+  await generateReceipts(householdId, cycleId, count || 0);
 
   revalidatePath("/dashboard");
   return { error: null };

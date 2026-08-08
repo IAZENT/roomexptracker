@@ -7,7 +7,7 @@ import { ShoppingCart, LogOut } from "lucide-react";
 import { signOut } from "@/app/login/actions";
 import { HouseholdSetup } from "./household-setup";
 import { HouseholdOverview } from "./household-overview";
-import { getFixedBills, ensureCurrentCycle, getCycles, getExpenses, getActiveMembers, getCycleHistory, getReceiptsForCycle, getArchivedHouseholds, getExpenseTimeline, getExpenseSummary, getPersonalSummary, getCustomExpenseTypes, getExpenseSharesForCycle } from "./actions";
+import { getFixedBills, ensureCurrentCycle, getCycles, getExpenses, getActiveMembers, getCycleHistory, getReceiptsForCycle, getArchivedHouseholds, getExpenseTimeline, getExpenseSummary, getPersonalSummary, getCustomExpenseTypes, getExpenseSharesForCycle, getCloseRequestForCycle } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +63,7 @@ export default async function DashboardPage() {
   };
   let customTypes: Awaited<ReturnType<typeof getCustomExpenseTypes>> = [];
   let expenseShares: Awaited<ReturnType<typeof getExpenseSharesForCycle>> = {};
+  let closeRequest: Awaited<ReturnType<typeof getCloseRequestForCycle>> = { request: null, approvals: [] };
   const closedCycleReceipts: Record<string, Awaited<ReturnType<typeof getReceiptsForCycle>>> = {};
 
   if (active?.household) {
@@ -81,11 +82,12 @@ export default async function DashboardPage() {
     ]);
 
     if (currentCycle) {
-      [expenses, summary, personalSummary, expenseShares] = await Promise.all([
+      [expenses, summary, personalSummary, expenseShares, closeRequest] = await Promise.all([
         getExpenses(currentCycle.id),
         getExpenseSummary(hid, currentCycle.id),
         getPersonalSummary(hid, currentCycle.id, user.id),
         getExpenseSharesForCycle(currentCycle.id),
+        getCloseRequestForCycle(currentCycle.id),
       ]);
     }
 
@@ -146,6 +148,7 @@ export default async function DashboardPage() {
             closedCycleReceipts={closedCycleReceipts}
             archivedHouseholds={archivedHouseholds}
             expenseShares={expenseShares}
+            closeRequest={closeRequest}
           />
         ) : (
           <HouseholdSetup />
