@@ -30,6 +30,9 @@ export function SettlementDialog({
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLoading(true);
+      setSettlements([]);
       getSettlements(cycleId).then(({ settlements, error }) => {
         setLoading(false);
         if (error) {

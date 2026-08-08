@@ -4,6 +4,19 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Split amount equally among count members, giving the remainder to the first.
+ *  Returns array of share amounts that sum exactly to amount. */
+function splitEqually(amount: number, count: number): number[] {
+  if (count <= 0) return [];
+  const base = Math.floor((amount * 100) / count) / 100;
+  const remainder = Math.round((amount - base * (count - 1)) * 100) / 100;
+  return Array.from({ length: count }, (_, i) => (i === count - 1 ? remainder : base));
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -777,8 +790,8 @@ export async function addExpense(
       .is("left_at", null);
 
     if (members && members.length > 0) {
-      const shareAmount = Math.round((amount / members.length) * 100) / 100;
-      shares = members.map((m) => ({ user_id: m.user_id, share_amount: shareAmount }));
+      const amounts = splitEqually(amount, members.length);
+      shares = members.map((m, i) => ({ user_id: m.user_id, share_amount: amounts[i] }));
     }
   }
 
@@ -847,6 +860,20 @@ export async function getExpenseSharesForCycle(cycleId: string): Promise<Record<
 
 export async function deleteExpense(expenseId: string): Promise<{ error: string | null }> {
   const supabase = await createClient();
+
+  // Check cycle is open
+  const { data: expense } = await supabase
+    .from("expenses")
+    .select("cycle_id, billing_cycles!inner(status)")
+    .eq("id", expenseId)
+    .single();
+
+  if (!expense) return { error: "Expense not found" };
+  const cycleStatus = (expense.billing_cycles as unknown as { status: string })?.status;
+  if (cycleStatus !== "open") {
+    return { error: "Cannot delete expenses in a closed cycle" };
+  }
+
   // Delete shares first, then expense
   await supabase.from("expense_shares").delete().eq("expense_id", expenseId);
   const { error } = await supabase.from("expenses").delete().eq("id", expenseId);
@@ -859,47 +886,51 @@ export async function deleteExpense(expenseId: string): Promise<{ error: string 
 
 export async function updateExpense(
   expenseId: string,
-  data: { type?: string; amount?: number; paid_by?: string; description?: string },
+  data: { type?: string; amount?: number; paid_by?: string; description?: string | null },
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  const { error } = await supabase.from("expenses").update(data).eq("id", expenseId);
 
+  // Fetch current expense to check if amount changed and cycle status
+  const { data: current } = await supabase
+    .from("expenses")
+    .select("amount, cycle_id, household_id, billing_cycles!inner(status)")
+    .eq("id", expenseId)
+    .single();
+
+  if (!current) return { error: "Expense not found" };
+  const cycleStatus = (current.billing_cycles as unknown as { status: string })?.status;
+  if (cycleStatus !== "open") {
+    return { error: "Cannot edit expenses in a closed cycle" };
+  }
+
+  const { error } = await supabase.from("expenses").update(data).eq("id", expenseId);
   if (error) return { error: error.message };
 
-  // If amount changed, recalculate shares equally
-  if (data.amount !== undefined) {
-    const { data: expense } = await supabase
-      .from("expenses")
-      .select("cycle_id, household_id")
-      .eq("id", expenseId)
-      .single();
+  // Only recalculate shares if amount actually changed
+  if (data.amount !== undefined && data.amount !== current.amount) {
+    const { count } = await supabase
+      .from("household_members")
+      .select("*", { count: "exact", head: true })
+      .eq("household_id", current.household_id)
+      .is("left_at", null);
 
-    if (expense) {
-      const { count } = await supabase
+    if (count && count > 0) {
+      const amounts = splitEqually(data.amount, count);
+      await supabase.from("expense_shares").delete().eq("expense_id", expenseId);
+      const { data: members } = await supabase
         .from("household_members")
-        .select("*", { count: "exact", head: true })
-        .eq("household_id", expense.household_id)
+        .select("user_id")
+        .eq("household_id", current.household_id)
         .is("left_at", null);
 
-      if (count && count > 0) {
-        const shareAmount = Math.round((data.amount / count) * 100) / 100;
-        // Delete old shares and insert new
-        await supabase.from("expense_shares").delete().eq("expense_id", expenseId);
-        const { data: members } = await supabase
-          .from("household_members")
-          .select("user_id")
-          .eq("household_id", expense.household_id)
-          .is("left_at", null);
-
-        if (members) {
-          await supabase.from("expense_shares").insert(
-            members.map((m) => ({
-              expense_id: expenseId,
-              user_id: m.user_id,
-              share_amount: shareAmount,
-            })),
-          );
-        }
+      if (members) {
+        await supabase.from("expense_shares").insert(
+          members.map((m, i) => ({
+            expense_id: expenseId,
+            user_id: m.user_id,
+            share_amount: amounts[i],
+          })),
+        );
       }
     }
   }
@@ -922,36 +953,31 @@ export type Settlement = {
 export async function getSettlements(cycleId: string): Promise<{ settlements: Settlement[]; error: string | null }> {
   const supabase = await createClient();
 
-  // Get all expenses and shares for this cycle
-  const [expensesRes, sharesRes] = await Promise.all([
-    supabase.from("expenses").select("id, paid_by, amount").eq("cycle_id", cycleId),
-    supabase.from("expense_shares").select("expense_id, user_id, share_amount"),
-  ]);
-
-  if (expensesRes.error || sharesRes.error) {
-    return { settlements: [], error: expensesRes.error?.message ?? sharesRes.error?.message ?? "Unknown error" };
-  }
-
-  const expenses = expensesRes.data ?? [];
-  const allShares = sharesRes.data ?? [];
-
-  // Get household_id from first expense
-  if (expenses.length === 0) return { settlements: [], error: null };
-
-  const { data: firstExpense } = await supabase
+  // Get all expenses for this cycle
+  const { data: expenses, error: expErr } = await supabase
     .from("expenses")
-    .select("household_id")
-    .eq("cycle_id", cycleId)
-    .limit(1)
-    .single();
+    .select("id, paid_by, amount, household_id")
+    .eq("cycle_id", cycleId);
 
-  if (!firstExpense) return { settlements: [], error: null };
+  if (expErr) return { settlements: [], error: expErr.message };
+  if (!expenses || expenses.length === 0) return { settlements: [], error: null };
+
+  // Get shares only for these expenses
+  const expenseIds = expenses.map((e) => e.id);
+  const { data: allShares, error: shareErr } = await supabase
+    .from("expense_shares")
+    .select("expense_id, user_id, share_amount")
+    .in("expense_id", expenseIds);
+
+  if (shareErr) return { settlements: [], error: shareErr.message };
+
+  const householdId = expenses[0].household_id;
 
   // Get all members
   const { data: members } = await supabase
     .from("household_members")
     .select("user_id, profiles(full_name)")
-    .eq("household_id", firstExpense.household_id)
+    .eq("household_id", householdId)
     .is("left_at", null);
 
   if (!members) return { settlements: [], error: null };
@@ -1065,10 +1091,10 @@ export async function getBalanceHistory(householdId: string): Promise<BalanceHis
   // Get all closed cycles
   const { data: cycles } = await supabase
     .from("billing_cycles")
-    .select("id, start_date")
+    .select("id, cycle_start")
     .eq("household_id", householdId)
     .eq("status", "closed")
-    .order("start_date", { ascending: true });
+    .order("cycle_start", { ascending: true });
 
   if (!cycles || cycles.length === 0) return [];
 
@@ -1088,18 +1114,17 @@ export async function getBalanceHistory(householdId: string): Promise<BalanceHis
 
   const result: BalanceHistoryPoint[] = [];
 
+  // Fetch all expenses and shares once (not per cycle)
+  const cycleIds = cycles.map((c) => c.id);
+  const [{ data: allExpenses }, { data: allShares }] = await Promise.all([
+    supabase.from("expenses").select("id, cycle_id, paid_by, amount").in("cycle_id", cycleIds),
+    supabase.from("expense_shares").select("expense_id, user_id, share_amount"),
+  ]);
+
+  if (!allExpenses || !allShares) return [];
+
   for (const cycle of cycles) {
-    // Get expenses for this cycle
-    const { data: expenses } = await supabase
-      .from("expenses")
-      .select("id, paid_by, amount")
-      .eq("cycle_id", cycle.id);
-
-    const { data: shares } = await supabase
-      .from("expense_shares")
-      .select("expense_id, user_id, share_amount");
-
-    if (!expenses || !shares) continue;
+    const expenses = allExpenses.filter((e) => e.cycle_id === cycle.id);
 
     const balances: Record<string, number> = {};
     for (const m of members) {
@@ -1108,13 +1133,13 @@ export async function getBalanceHistory(householdId: string): Promise<BalanceHis
 
     for (const exp of expenses) {
       balances[exp.paid_by] = (balances[exp.paid_by] ?? 0) + exp.amount;
-      const expShares = shares.filter((s) => s.expense_id === exp.id);
+      const expShares = allShares.filter((s) => s.expense_id === exp.id);
       for (const share of expShares) {
         balances[share.user_id] = (balances[share.user_id] ?? 0) - share.share_amount;
       }
     }
 
-    const monthDate = new Date(cycle.start_date);
+    const monthDate = new Date(cycle.cycle_start);
     const label = monthDate.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 
     const membersData: Record<string, { name: string; balance: number }> = {};
@@ -1513,12 +1538,12 @@ export async function convertShoppingToExpense(
     .is("left_at", null);
 
   if (members && members.length > 0) {
-    const shareAmount = Math.round((total / members.length) * 100) / 100;
+    const amounts = splitEqually(total, members.length);
     await supabase.from("expense_shares").insert(
-      members.map((m) => ({
+      members.map((m, i) => ({
         expense_id: expense.id,
         user_id: m.user_id,
-        share_amount: shareAmount,
+        share_amount: amounts[i],
       })),
     );
   }

@@ -60,7 +60,7 @@ export function EditExpenseDialog({
       type,
       amount: parsedAmount,
       paid_by: paidBy,
-      description: description || undefined,
+      description: description || null,
     });
     setSaving(false);
 
