@@ -1410,10 +1410,34 @@ export async function getExpenseSummary(
 
   const { data: expenses } = await query;
 
+  // Members' pays_for, so "who paid" credit reflects coverage: if the
+  // payer covers someone else, that person is credited as having paid
+  // their share too (e.g. Aashutosh pays for Arun -> Arun shows as
+  // having paid half), not 100% attributed to whoever physically paid.
+  const { data: membersForPayer } = await supabase
+    .from("household_members")
+    .select("user_id, pays_for")
+    .eq("household_id", householdId)
+    .is("left_at", null);
+  const activePayerIds = new Set((membersForPayer ?? []).map((m) => m.user_id));
+  const paysForByUser = new Map<string, string[] | null>(
+    (membersForPayer ?? []).map((m) => [m.user_id, m.pays_for]),
+  );
+
   if (expenses) {
     for (const e of expenses) {
       summary.totalByType[e.type] = (summary.totalByType[e.type] ?? 0) + e.amount;
-      summary.totalByPayer[e.paid_by] = (summary.totalByPayer[e.paid_by] ?? 0) + e.amount;
+
+      const payerPaysFor = paysForByUser.get(e.paid_by);
+      const creditIds =
+        payerPaysFor && payerPaysFor.length > 1
+          ? payerPaysFor.filter((id) => activePayerIds.has(id))
+          : [e.paid_by];
+      const perCredit = e.amount / (creditIds.length || 1);
+      for (const id of creditIds.length > 0 ? creditIds : [e.paid_by]) {
+        summary.totalByPayer[id] = (summary.totalByPayer[id] ?? 0) + perCredit;
+      }
+
       summary.grandTotal += e.amount;
       summary.variableTotal += e.amount;
     }
