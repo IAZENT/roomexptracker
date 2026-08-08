@@ -32,15 +32,17 @@ import {
   markItemSynced,
   getUnsyncedItems,
   clearSyncedItems,
+  saveLocalItems,
   type ShoppingItem,
 } from "@/lib/shopping-storage";
-import { syncShoppingItems } from "./actions";
+import { syncShoppingItems, getShoppingItems, type CustomExpenseType } from "./actions";
 
 const EXPENSE_TYPES = [
+  { value: "electricity", label: "Electricity" },
   { value: "groceries", label: "Groceries" },
   { value: "drinking_water", label: "Drinking water" },
   { value: "other", label: "Other" },
-] as const;
+];
 
 function getFilteredItems(householdId: string): ShoppingItem[] {
   return getLocalItems().filter((i) => i.householdId === householdId);
@@ -51,11 +53,13 @@ export function ShoppingMode({
   cycleId,
   currency,
   currentUserId,
+  customTypes,
 }: {
   householdId: string;
   cycleId: string | null;
   currency: string;
   currentUserId: string;
+  customTypes: CustomExpenseType[];
 }) {
   const router = useRouter();
   const [items, setItems] = useState<ShoppingItem[]>(() =>
@@ -71,6 +75,48 @@ export function ShoppingMode({
   const [showConvert, setShowConvert] = useState(false);
   const [convertType, setConvertType] = useState("groceries");
   const syncingRef = useRef(false);
+
+  const allTypes = [
+    ...EXPENSE_TYPES,
+    ...customTypes.map((t) => ({ value: t.name.toLowerCase(), label: t.name })),
+  ];
+
+  // Load items from server on mount (if online) and merge with local
+  const loadServerItems = useCallback(async () => {
+    if (!navigator.onLine) return;
+    try {
+      const serverItems = await getShoppingItems(householdId);
+      const localItems = getFilteredItems(householdId);
+
+      // Merge: server items take precedence, keep local unsynced items
+      const serverIds = new Set(serverItems.map((s) => s.local_id));
+      const unsyncedLocal = localItems.filter((l) => !l.synced && !serverIds.has(l.localId));
+
+      const merged: ShoppingItem[] = [
+        ...serverItems.map((s) => ({
+          localId: s.local_id ?? s.id,
+          serverId: s.id,
+          householdId: s.household_id,
+          userId: s.user_id,
+          cycleId: s.cycle_id,
+          name: s.name,
+          cost: s.cost,
+          synced: true,
+          createdAt: s.created_at,
+        })),
+        ...unsyncedLocal,
+      ];
+
+      setItems(merged);
+      saveLocalItems(merged);
+    } catch {
+      // Offline or error -- keep local items
+    }
+  }, [householdId]);
+
+  useEffect(() => {
+    loadServerItems();
+  }, [loadServerItems]);
 
   const refreshItems = useCallback(() => {
     setItems(getFilteredItems(householdId));
@@ -110,6 +156,8 @@ export function ShoppingMode({
     setSyncResult(result);
     setSyncing(false);
     syncingRef.current = false;
+    // Reload from server to get fresh data
+    await loadServerItems();
     // Auto-show convert dialog after successful sync
     if (result.synced > 0 && cycleId) {
       const { toast } = await import("sonner");
@@ -118,7 +166,7 @@ export function ShoppingMode({
       });
       setShowConvert(true);
     }
-  }, [householdId, refreshItems, cycleId]);
+  }, [householdId, refreshItems, cycleId, loadServerItems]);
 
   // Track online/offline and auto-sync on reconnect
   useEffect(() => {
@@ -395,7 +443,7 @@ export function ShoppingMode({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {EXPENSE_TYPES.map((t) => (
+                  {allTypes.map((t) => (
                     <SelectItem key={t.value} value={t.value}>
                       {t.label}
                     </SelectItem>

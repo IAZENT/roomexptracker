@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ShoppingMode } from "../shopping-mode";
-import { ensureCurrentCycle } from "../actions";
+import { ensureCurrentCycle, getCustomExpenseTypes } from "../actions";
 
 export default async function ShoppingPage() {
   const supabase = await createClient();
@@ -25,12 +25,15 @@ export default async function ShoppingPage() {
   // Ensure an open cycle exists
   const cycle = await ensureCurrentCycle(membership.household_id, hh.cycle_end_day);
 
+  const customTypes = await getCustomExpenseTypes(membership.household_id);
+
   return (
     <ShoppingMode
       householdId={membership.household_id}
       cycleId={cycle?.id ?? null}
       currency={hh.currency}
       currentUserId={user.id}
+      customTypes={customTypes}
     />
   );
 }
