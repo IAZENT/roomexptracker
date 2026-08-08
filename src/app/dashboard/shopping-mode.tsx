@@ -96,8 +96,12 @@ export function ShoppingMode({
       })),
     );
 
+    // Only mark items as synced if they were actually synced (not in errors)
+    const errorNames = new Set(result.errors.map((e) => e.split(":")[0].trim()));
     for (const item of unsynced) {
-      markItemSynced(item.localId, item.localId);
+      if (!errorNames.has(item.name)) {
+        markItemSynced(item.localId, item.localId);
+      }
     }
 
     clearSyncedItems();
@@ -125,19 +129,25 @@ export function ShoppingMode({
     };
   }, [householdId, handleSync]);
 
-  const handleAddItem = (e: React.FormEvent) => {
+  const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
     const name = itemName.trim();
     const cost = parseFloat(itemCost);
     if (!name || isNaN(cost) || cost <= 0) return;
 
-    addLocalItem({
+    const added = addLocalItem({
       householdId,
       userId: currentUserId,
       cycleId,
       name,
       cost,
     });
+
+    if (!added) {
+      const { toast } = await import("sonner");
+      toast.error("Failed to save item. Your device storage may be full.");
+      return;
+    }
 
     setItemName("");
     setItemCost("");
@@ -386,8 +396,8 @@ export function ShoppingMode({
                 if (!cycleId) return;
                 const unsynced = items.filter((i) => !i.synced);
                 // First sync any unsynced items
-                if (unsynced.length > 0) {
-                  await syncShoppingItems(
+                if (unsynced.length > 0 && isOnline) {
+                  const syncResult = await syncShoppingItems(
                     unsynced.map((i) => ({
                       localId: i.localId,
                       name: i.name,
@@ -397,9 +407,26 @@ export function ShoppingMode({
                       createdAt: i.createdAt,
                     })),
                   );
+                  // If some items failed sync, warn and stop
+                  if (syncResult.errors.length > 0) {
+                    const { toast } = await import("sonner");
+                    toast.error(`Failed to sync ${syncResult.errors.length} item(s). Try again.`);
+                    return;
+                  }
+                  // Mark synced locally
+                  for (const item of unsynced) {
+                    markItemSynced(item.localId, item.localId);
+                  }
+                  clearSyncedItems();
+                  refreshItems();
+                } else if (unsynced.length > 0 && !isOnline) {
+                  const { toast } = await import("sonner");
+                  toast.error("You're offline. Sync items first before converting to expense.");
+                  return;
                 }
                 // Then convert all items to expense
-                const allIds = items.map((i) => i.serverId ?? i.localId);
+                const refreshedItems = getFilteredItems(householdId);
+                const allIds = refreshedItems.map((i) => i.serverId ?? i.localId);
                 const { convertShoppingToExpense } = await import("./actions");
                 const result = await convertShoppingToExpense(
                   allIds,
@@ -411,6 +438,9 @@ export function ShoppingMode({
                 if (!result.error) {
                   clearSyncedItems();
                   router.refresh();
+                } else {
+                  const { toast } = await import("sonner");
+                  toast.error(result.error);
                 }
               }}
             >

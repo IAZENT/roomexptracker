@@ -28,12 +28,17 @@ export function getLocalItems(): ShoppingItem[] {
 
 export function saveLocalItems(items: ShoppingItem[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  } catch {
+    // localStorage full or private browsing -- warn user
+    console.warn("Failed to save shopping items to localStorage");
+  }
 }
 
 export function addLocalItem(
   item: Omit<ShoppingItem, "localId" | "synced" | "createdAt">,
-): ShoppingItem {
+): ShoppingItem | null {
   const items = getLocalItems();
   const newItem: ShoppingItem = {
     ...item,
@@ -42,8 +47,13 @@ export function addLocalItem(
     createdAt: new Date().toISOString(),
   };
   items.push(newItem);
-  saveLocalItems(items);
-  return newItem;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    return newItem;
+  } catch {
+    console.warn("Failed to save shopping item -- localStorage may be full");
+    return null;
+  }
 }
 
 export function removeLocalItem(localId: string) {
