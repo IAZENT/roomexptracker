@@ -389,12 +389,14 @@ export function HouseholdOverview({
                               {household.currency} {perPerson.toLocaleString(undefined, { minimumFractionDigits: 2 })} / person
                             </span>
                           </div>
-                          <button
-                            onClick={() => setEditingExpense(expense)}
-                            className="rounded-md p-1.5 text-muted-foreground hover:bg-background hover:text-foreground transition-colors"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
+                          {(expense.paid_by === currentUserId || role === "owner") && (
+                            <button
+                              onClick={() => setEditingExpense(expense)}
+                              className="rounded-md p-1.5 text-muted-foreground hover:bg-background hover:text-foreground transition-colors"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     );

@@ -19,10 +19,11 @@ CREATE POLICY "Members can view settled debts"
       JOIN households h ON h.id = bc.household_id
       JOIN household_members hm ON hm.household_id = h.id
       WHERE hm.user_id = auth.uid()
+      AND hm.left_at IS NULL
     )
   );
 
--- Members can insert settled debts
+-- Members can insert settled debts (validates from/to are active members)
 CREATE POLICY "Members can settle debts"
   ON settled_debts FOR INSERT
   WITH CHECK (
@@ -31,5 +32,17 @@ CREATE POLICY "Members can settle debts"
       JOIN households h ON h.id = bc.household_id
       JOIN household_members hm ON hm.household_id = h.id
       WHERE hm.user_id = auth.uid()
+      AND hm.left_at IS NULL
     )
+    AND from_user_id IN (
+      SELECT hm2.user_id FROM household_members hm2
+      JOIN billing_cycles bc2 ON bc2.household_id = hm2.household_id
+      WHERE bc2.id = cycle_id AND hm2.left_at IS NULL
+    )
+    AND to_user_id IN (
+      SELECT hm3.user_id FROM household_members hm3
+      JOIN billing_cycles bc3 ON bc3.household_id = hm3.household_id
+      WHERE bc3.id = cycle_id AND hm3.left_at IS NULL
+    )
+    AND from_user_id <> to_user_id
   );

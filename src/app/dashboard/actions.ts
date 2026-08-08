@@ -776,6 +776,12 @@ export async function addExpense(
       shares = Object.entries(parsed)
         .filter(([, amt]) => amt > 0)
         .map(([userId, amt]) => ({ user_id: userId, share_amount: amt }));
+
+      // Validate custom shares sum to expense amount
+      const totalShares = shares.reduce((sum, s) => sum + s.share_amount, 0);
+      if (Math.abs(totalShares - amount) > 0.01) {
+        return { error: `Custom shares (Rs ${totalShares.toFixed(2)}) must equal the expense amount (Rs ${amount.toFixed(2)})` };
+      }
     } catch {
       // Fall back to equal split
     }
@@ -861,17 +867,27 @@ export async function getExpenseSharesForCycle(cycleId: string): Promise<Record<
 export async function deleteExpense(expenseId: string): Promise<{ error: string | null }> {
   const supabase = await createClient();
 
-  // Check cycle is open
+  // Check cycle is open and user owns the expense (or is owner)
   const { data: expense } = await supabase
     .from("expenses")
-    .select("cycle_id, billing_cycles!inner(status)")
+    .select("paid_by, billing_cycles!inner(status), household_members!inner(role)")
     .eq("id", expenseId)
     .single();
 
   if (!expense) return { error: "Expense not found" };
+
   const cycleStatus = (expense.billing_cycles as unknown as { status: string })?.status;
   if (cycleStatus !== "open") {
     return { error: "Cannot delete expenses in a closed cycle" };
+  }
+
+  // RLS handles this, but we add explicit check for better error messages
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const householdRole = (expense.household_members as unknown as { role: string })?.role;
+  if (expense.paid_by !== user.id && householdRole !== "owner") {
+    return { error: "You can only delete your own expenses" };
   }
 
   // Delete shares first, then expense
@@ -890,17 +906,34 @@ export async function updateExpense(
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
 
-  // Fetch current expense to check if amount changed and cycle status
+  // Fetch current expense to check if amount changed, cycle status, and ownership
   const { data: current } = await supabase
     .from("expenses")
-    .select("amount, cycle_id, household_id, billing_cycles!inner(status)")
+    .select("paid_by, amount, cycle_id, household_id, billing_cycles!inner(status)")
     .eq("id", expenseId)
     .single();
 
   if (!current) return { error: "Expense not found" };
+
   const cycleStatus = (current.billing_cycles as unknown as { status: string })?.status;
   if (cycleStatus !== "open") {
     return { error: "Cannot edit expenses in a closed cycle" };
+  }
+
+  // Check ownership
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: memberRole } = await supabase
+    .from("household_members")
+    .select("role")
+    .eq("household_id", current.household_id)
+    .eq("user_id", user.id)
+    .is("left_at", null)
+    .single();
+
+  if (current.paid_by !== user.id && memberRole?.role !== "owner") {
+    return { error: "You can only edit your own expenses" };
   }
 
   const { error } = await supabase.from("expenses").update(data).eq("id", expenseId);
@@ -982,10 +1015,26 @@ export async function getSettlements(cycleId: string): Promise<{ settlements: Se
 
   if (!members) return { settlements: [], error: null };
 
+  // Get fixed bills for this cycle and split equally
+  const { data: fixedBills } = await supabase
+    .from("fixed_bills")
+    .select("type, amount")
+    .eq("household_id", householdId);
+
   // Calculate net balance for each person
   const balances: Record<string, number> = {};
   for (const m of members) {
     balances[m.user_id] = 0;
+  }
+
+  // Fixed bills are paid by the household (added to balance) and split equally (subtracted from each member)
+  // Since no one "paid" fixed bills through the app, we model it as: each member owes their share
+  if (fixedBills && fixedBills.length > 0 && members.length > 0) {
+    const totalFixed = fixedBills.reduce((sum, b) => sum + b.amount, 0);
+    const perPerson = totalFixed / members.length;
+    for (const m of members) {
+      balances[m.user_id] = (balances[m.user_id] ?? 0) - perPerson;
+    }
   }
 
   // For each expense: payer gets +amount, each person in shares owes -share_amount
@@ -1123,12 +1172,21 @@ export async function getBalanceHistory(householdId: string): Promise<BalanceHis
 
   if (!allExpenses || !allShares) return [];
 
+  // Get fixed bills for this household (split equally across all members)
+  const { data: fixedBills } = await supabase
+    .from("fixed_bills")
+    .select("amount")
+    .eq("household_id", householdId);
+
+  const totalFixed = fixedBills?.reduce((sum, b) => sum + b.amount, 0) ?? 0;
+  const perPersonFixed = members.length > 0 ? totalFixed / members.length : 0;
+
   for (const cycle of cycles) {
     const expenses = allExpenses.filter((e) => e.cycle_id === cycle.id);
 
     const balances: Record<string, number> = {};
     for (const m of members) {
-      balances[m.user_id] = 0;
+      balances[m.user_id] = -perPersonFixed; // Each person owes their share of fixed bills
     }
 
     for (const exp of expenses) {
