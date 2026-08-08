@@ -2035,17 +2035,18 @@ export async function getPersonalSummary(
 
   // Daily aggregation
   const dailyMap: Record<string, { paid: number; owed: number }> = {};
-  // totalPaid tracks real personal spending. For a normal expense that's
-  // simply what you (paid_by) fronted. But a settled expense (e.g. gas)
-  // wasn't fronted by one person - everyone paid their own cut on the
-  // spot - so crediting the whole amount to whoever happened to type it
-  // into the app would be wrong. Settled amounts get credited via each
-  // person's own expense_shares row instead (same equal-split + pays_for
-  // coverage redirect already used for the owed calculation - e.g. Shyam
-  // covering jitendra means Shyam's share already includes both).
-  // paidTowardBalance stays non-settled-only either way, since settled
-  // money was already reimbursed in cash and shouldn't reduce what's owed.
-  let paidTowardBalance = 0;
+  // totalShareOfSpend = your portion of every variable expense this cycle,
+  // settled or not (settled just means you already paid it in cash, so it
+  // still counts as "yours"). This is the number that should agree with
+  // the shared dashboard's "Your share" - totalOwed stays settled-excluded
+  // for the "who you still owe" breakdown (byTypeOwed, daily .owed,
+  // topPayerBreakdown), which should NOT include already-settled amounts.
+  //
+  // Because a settled share is credited to totalPaid AND totalShareOfSpend
+  // with the exact same number, it cancels out perfectly when computing
+  // remainingToPay (totalShareOfSpend + fixedBillsShare - totalPaid) - no
+  // separate "exclude settled" bookkeeping needed for that calculation.
+  let totalShareOfSpend = 0;
   // "Recent expenses" needs to show YOUR portion, not the raw expense
   // amount - for a settled expense that's your share, not the total.
   const recentPaid: { id: string; type: string; amount: number; created_at: string }[] = [];
@@ -2059,7 +2060,6 @@ export async function getPersonalSummary(
       // were still showing the full amount against whoever typed it in.
       if (e.settled) continue;
       summary.totalPaid += e.amount;
-      paidTowardBalance += e.amount;
       summary.byType[e.type] = (summary.byType[e.type] ?? 0) + e.amount;
       const day = e.created_at.slice(0, 10);
       if (!dailyMap[day]) dailyMap[day] = { paid: 0, owed: 0 };
@@ -2077,6 +2077,8 @@ export async function getPersonalSummary(
 
       const matchesCycle = !cycleId || exp.cycle_id === cycleId;
       if (!matchesCycle) continue;
+
+      totalShareOfSpend += s.share_amount;
 
       if (exp.settled) {
         // Your split of a settled expense counts as money you personally
@@ -2151,9 +2153,13 @@ export async function getPersonalSummary(
     }
   }
 
-  summary.totalResponsibility = summary.totalOwed + summary.fixedBillsShare;
-  summary.remainingToPay = summary.totalResponsibility - paidTowardBalance;
-  summary.remainingToPayVariableOnly = summary.totalOwed - paidTowardBalance;
+  // totalShareOfSpend (settled + unsettled) matches the shared dashboard's
+  // "Your share" (household-overview.tsx uses totalByMember, which is also
+  // settled-inclusive) - this is "your total" in the everyday sense, not
+  // just what's still outstanding.
+  summary.totalResponsibility = totalShareOfSpend + summary.fixedBillsShare;
+  summary.remainingToPay = summary.totalResponsibility - summary.totalPaid;
+  summary.remainingToPayVariableOnly = totalShareOfSpend - summary.totalPaid;
 
   return summary;
 }
