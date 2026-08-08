@@ -700,6 +700,7 @@ export type Expense = {
   paid_by: string;
   description: string | null;
   created_at: string;
+  metadata: { name: string; cost: number }[] | null;
 };
 
 export type ExpenseShare = {
@@ -881,12 +882,11 @@ export async function deleteExpense(expenseId: string): Promise<{ error: string 
     return { error: "Cannot delete expenses in a closed cycle" };
   }
 
-  // RLS handles this, but we add explicit check for better error messages
+  // Check ownership - only the payer can delete
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
-  const householdRole = (expense.household_members as unknown as { role: string })?.role;
-  if (expense.paid_by !== user.id && householdRole !== "owner") {
+  if (expense.paid_by !== user.id) {
     return { error: "You can only delete your own expenses" };
   }
 
@@ -920,19 +920,11 @@ export async function updateExpense(
     return { error: "Cannot edit expenses in a closed cycle" };
   }
 
-  // Check ownership
+  // Check ownership - only the payer can edit
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
-  const { data: memberRole } = await supabase
-    .from("household_members")
-    .select("role")
-    .eq("household_id", current.household_id)
-    .eq("user_id", user.id)
-    .is("left_at", null)
-    .single();
-
-  if (current.paid_by !== user.id && memberRole?.role !== "owner") {
+  if (current.paid_by !== user.id) {
     return { error: "You can only edit your own expenses" };
   }
 
@@ -1572,7 +1564,7 @@ export async function convertShoppingToExpense(
   const total = items.reduce((sum, i) => sum + i.cost, 0);
   const description = items.map((i) => i.name).join(", ");
 
-  // Create the expense
+  // Create the expense with shopping items stored in metadata
   const { data: expense, error: expenseError } = await supabase
     .from("expenses")
     .insert({
@@ -1582,6 +1574,7 @@ export async function convertShoppingToExpense(
       amount: total,
       paid_by: paidBy,
       description,
+      metadata: items.map((i) => ({ name: i.name, cost: i.cost })),
     })
     .select()
     .single();

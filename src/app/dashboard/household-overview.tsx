@@ -14,7 +14,7 @@ import { PersonalDashboard } from "./personal-dashboard";
 import { CustomTypesSettings } from "./custom-types-settings";
 import { requestCycleClose, approveCycleClose } from "./actions";
 import { EXPENSE_TYPE_LABELS } from "@/lib/constants";
-import { Pencil } from "lucide-react";
+import { Pencil, ChevronDown } from "lucide-react";
 import { SettlementDialog } from "./settlement-dialog";
 import { BalanceHistoryChart } from "./balance-history";
 import type { FixedBill, BillingCycle, Expense, Member, CycleHistory, Receipt, ExpenseWithTimestamp, ExpenseSummary, PersonalSummary, CustomExpenseType, ExpenseShare, CloseRequest, CloseApproval } from "./actions";
@@ -73,6 +73,7 @@ export function HouseholdOverview({
   const [closing, setClosing] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [showSettlements, setShowSettlements] = useState(false);
+  const [expandedExpenses, setExpandedExpenses] = useState<Set<string>>(new Set());
   const EXPENSES_PAGE_SIZE = 10;
   const visibleExpenses = showAllExpenses ? expenses : expenses.slice(0, EXPENSES_PAGE_SIZE);
   const hasMoreExpenses = expenses.length > EXPENSES_PAGE_SIZE;
@@ -369,35 +370,74 @@ export function HouseholdOverview({
                     const shares = expenseShares[expense.id] ?? [];
                     const currentUserShare = shares.find((s) => s.user_id === currentUserId);
                     const perPerson = currentUserShare?.share_amount ?? (members.length > 0 ? expense.amount / members.length : 0);
+                    const isExpanded = expandedExpenses.has(expense.id);
+                    const hasItems = expense.metadata && expense.metadata.length > 0;
                     return (
-                      <div key={expense.id} className="flex items-center justify-between rounded-lg bg-secondary/50 px-3 py-2">
-                        <div className="flex flex-col">
-                          <span className="text-sm font-medium text-foreground">
-                            {allTypeLabels[expense.type] ?? expense.type}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            Paid by {payer?.full_name ?? "Unknown"}
-                            {expense.description && ` - ${expense.description}`}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="flex flex-col items-end">
+                      <div key={expense.id} className="rounded-lg bg-secondary/50">
+                        <div
+                          className={`flex items-center justify-between px-3 py-2 ${hasItems ? "cursor-pointer hover:bg-secondary/70 transition-colors" : ""}`}
+                          onClick={() => {
+                            if (hasItems) {
+                              setExpandedExpenses((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(expense.id)) {
+                                  next.delete(expense.id);
+                                } else {
+                                  next.add(expense.id);
+                                }
+                                return next;
+                              });
+                            }
+                          }}
+                        >
+                          <div className="flex flex-col">
                             <span className="text-sm font-medium text-foreground">
-                              {household.currency} {expense.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              {allTypeLabels[expense.type] ?? expense.type}
                             </span>
                             <span className="text-xs text-muted-foreground">
-                              {household.currency} {perPerson.toLocaleString(undefined, { minimumFractionDigits: 2 })} / person
+                              Paid by {payer?.full_name ?? "Unknown"}
+                              {expense.description && ` - ${expense.description}`}
                             </span>
                           </div>
-                          {(expense.paid_by === currentUserId || role === "owner") && (
+                          <div className="flex items-center gap-2">
+                            <div className="flex flex-col items-end">
+                              <span className="text-sm font-medium text-foreground">
+                                {household.currency} {expense.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {household.currency} {perPerson.toLocaleString(undefined, { minimumFractionDigits: 2 })} / person
+                              </span>
+                            </div>
+                          {expense.paid_by === currentUserId && (
                             <button
-                              onClick={() => setEditingExpense(expense)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingExpense(expense);
+                              }}
                               className="rounded-md p-1.5 text-muted-foreground hover:bg-background hover:text-foreground transition-colors"
                             >
                               <Pencil className="h-3.5 w-3.5" />
                             </button>
                           )}
+                            {hasItems && (
+                              <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                            )}
+                          </div>
                         </div>
+                        {hasItems && isExpanded && (
+                          <div className="border-t border-border/50 px-3 py-2">
+                            <div className="flex flex-col gap-1">
+                              {expense.metadata!.map((item, i) => (
+                                <div key={i} className="flex items-center justify-between text-xs">
+                                  <span className="text-muted-foreground">{item.name}</span>
+                                  <span className="font-medium text-foreground">
+                                    {household.currency} {item.cost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
