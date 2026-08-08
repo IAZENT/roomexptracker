@@ -195,44 +195,6 @@ export function HouseholdOverview({
             </CardContent>
           </Card>
 
-          {/* Household members + who pays for whom */}
-          <Card className="mt-4 border-border shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Household members</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col gap-2">
-                {members.map((m) => {
-                  const coversOthers = m.pays_for && m.pays_for.length > 1;
-                  return (
-                    <div
-                      key={m.user_id}
-                      className="flex items-center justify-between gap-2 rounded-lg bg-secondary/50 px-3 py-2"
-                    >
-                      <div className="flex flex-col">
-                        <span className="text-sm font-medium text-foreground">
-                          {m.full_name}
-                          {m.user_id === currentUserId && " (you)"}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {coversOthers
-                            ? `Pays for: ${members
-                                .filter((other) => m.pays_for!.includes(other.user_id))
-                                .map((o) => (o.user_id === m.user_id ? `${o.full_name} (self)` : o.full_name))
-                                .join(", ")}`
-                            : "Pays for self only"}
-                        </span>
-                      </div>
-                      <Badge variant="secondary" className="shrink-0 capitalize">
-                        {m.role}
-                      </Badge>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Current cycle */}
           {currentCycle && (
             <Card className="mt-4 border-border shadow-sm">
