@@ -100,7 +100,8 @@ export function ShoppingMode({
     const errorNames = new Set(result.errors.map((e) => e.split(":")[0].trim()));
     for (const item of unsynced) {
       if (!errorNames.has(item.name)) {
-        markItemSynced(item.localId, item.localId);
+        const serverId = result.idMap[item.localId];
+        markItemSynced(item.localId, serverId ?? item.localId);
       }
     }
 
@@ -426,7 +427,12 @@ export function ShoppingMode({
                 }
                 // Then convert all items to expense
                 const refreshedItems = getFilteredItems(householdId);
-                const allIds = refreshedItems.map((i) => i.serverId ?? i.localId);
+                const allIds = refreshedItems.map((i) => i.serverId).filter((id): id is string => !!id);
+                if (allIds.length === 0) {
+                  const { toast } = await import("sonner");
+                  toast.error("No synced items to convert. Sync first.");
+                  return;
+                }
                 const { convertShoppingToExpense } = await import("./actions");
                 const result = await convertShoppingToExpense(
                   allIds,

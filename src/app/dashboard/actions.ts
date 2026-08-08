@@ -1128,18 +1128,19 @@ export type ShoppingItemRow = {
 
 export async function syncShoppingItems(
   items: { localId: string; name: string; cost: number; householdId: string; cycleId: string | null; createdAt: string }[],
-): Promise<{ synced: number; errors: string[] }> {
+): Promise<{ synced: number; errors: string[]; idMap: Record<string, string> }> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { synced: 0, errors: ["Not authenticated"] };
+  if (!user) return { synced: 0, errors: ["Not authenticated"], idMap: {} };
 
   const errors: string[] = [];
   let synced = 0;
+  const idMap: Record<string, string> = {};
 
   for (const item of items) {
-    const { error } = await supabase.from("shopping_items").insert({
+    const { data, error } = await supabase.from("shopping_items").insert({
       household_id: item.householdId,
       user_id: user.id,
       cycle_id: item.cycleId,
@@ -1149,16 +1150,19 @@ export async function syncShoppingItems(
       local_id: item.localId,
       created_at: item.createdAt,
       synced_at: new Date().toISOString(),
-    });
+    })
+    .select("id")
+    .single();
 
     if (error) {
       errors.push(`${item.name}: ${error.message}`);
     } else {
       synced++;
+      idMap[item.localId] = data.id;
     }
   }
 
-  return { synced, errors };
+  return { synced, errors, idMap };
 }
 
 export async function getShoppingItems(householdId: string): Promise<ShoppingItemRow[]> {
