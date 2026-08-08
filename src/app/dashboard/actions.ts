@@ -872,6 +872,9 @@ export type ExpenseShare = {
 export type ExpenseActionState = {
   error: string | null;
   values?: { type?: string; amount?: string; description?: string; paidBy?: string; customShares?: string; items?: string };
+  // Explicit success marker - don't infer success from `values` being
+  // populated, since a successful add doesn't echo any values back.
+  success?: boolean;
 };
 
 export async function addExpense(
@@ -1018,7 +1021,7 @@ export async function addExpense(
   }
 
   revalidatePath("/dashboard");
-  return { error: null };
+  return { error: null, success: true };
 }
 
 export async function getExpenses(cycleId: string): Promise<Expense[]> {

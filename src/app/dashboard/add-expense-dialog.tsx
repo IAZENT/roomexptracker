@@ -40,6 +40,7 @@ export function AddExpenseDialog({
   const [items, setItems] = useState<ItemRow[]>([{ name: "", cost: "" }]);
   const [participants, setParticipants] = useState<Set<string>>(new Set(members.map((m) => m.user_id)));
   const [settled, setSettled] = useState(false);
+  const [type, setType] = useState("");
 
   const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen);
@@ -47,6 +48,7 @@ export function AddExpenseDialog({
       setItems([{ name: "", cost: "" }]);
       setParticipants(new Set(members.map((m) => m.user_id)));
       setSettled(false);
+      setType("");
     }
   };
 
@@ -87,15 +89,17 @@ export function AddExpenseDialog({
   // Track previous state to detect success
   const prevStateRef = useRef(state);
   useEffect(() => {
-    // Detect transition from pending/error to success
-    if (prevStateRef.current !== state && state && !state.error && state.values?.type && state.values?.amount) {
+    // Detect transition from pending to success via the explicit flag -
+    // a successful add doesn't echo values back, so we can't infer success
+    // from `values` being populated (it never is on success).
+    if (prevStateRef.current !== state && state.success) {
       toast.success("Expense added", {
-        description: `${typeLabels[state.values.type] ?? state.values.type} - ${currency} ${parseFloat(state.values.amount).toFixed(2)}`,
+        description: `${typeLabels[type] ?? type} - ${currency} ${itemsTotal.toFixed(2)}`,
       });
       setOpen(false);
     }
     prevStateRef.current = state;
-  }, [state, typeLabels, currency]);
+  }, [state, typeLabels, currency, type, itemsTotal]);
 
   const addItemRow = () => setItems((prev) => [...prev, { name: "", cost: "" }]);
   const removeItemRow = (index: number) =>
@@ -130,7 +134,7 @@ export function AddExpenseDialog({
         >
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="expense-type">Type</Label>
-            <Select name="type" defaultValue={state.values?.type}>
+            <Select name="type" value={type} onValueChange={setType}>
               <SelectTrigger id="expense-type">
                 <SelectValue placeholder="Select type" />
               </SelectTrigger>
