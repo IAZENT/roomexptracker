@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useActionState } from "react";
+import { useState, useActionState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus, X } from "lucide-react";
+import { toast } from "sonner";
 import { upsertFixedBills, type FixedBillActionState, type FixedBill } from "./actions";
 
 const initialState: FixedBillActionState = { error: null };
@@ -24,6 +25,15 @@ export function FixedBillsSettings({
       return bills.map((b) => ({ type: b.type, amount: b.amount.toString() }));
     }
     return [{ type: "rent", amount: "" }];
+  });
+
+  // Track previous state to detect success
+  const prevStateRef = useRef(state);
+  useEffect(() => {
+    if (prevStateRef.current !== state && state && !state.error) {
+      toast.success("Fixed bills saved");
+    }
+    prevStateRef.current = state;
   });
 
   const addRow = () => {

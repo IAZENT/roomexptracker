@@ -11,6 +11,7 @@ import { ReceiptDialog } from "./receipt-view";
 import { ArchiveHouseholdButton } from "./archive-household";
 import { PersonalDashboard } from "./personal-dashboard";
 import { CustomTypesSettings } from "./custom-types-settings";
+import { EXPENSE_TYPE_LABELS } from "@/lib/constants";
 import type { FixedBill, BillingCycle, Expense, Member, CycleHistory, Receipt, ExpenseWithTimestamp, ExpenseSummary, PersonalSummary, CustomExpenseType } from "./actions";
 
 type Household = {
@@ -19,13 +20,6 @@ type Household = {
   cycle_end_day: number;
   currency: string;
   invite_code: string | null;
-};
-
-const EXPENSE_TYPE_LABELS: Record<string, string> = {
-  electricity: "Electricity",
-  groceries: "Groceries",
-  drinking_water: "Drinking water",
-  other: "Other",
 };
 
 type DashboardView = "personal" | "shared";
@@ -78,7 +72,7 @@ export function HouseholdOverview({
   }
 
   return (
-    <div className="w-full max-w-md">
+    <div className="w-full max-w-2xl">
       {/* Header */}
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">

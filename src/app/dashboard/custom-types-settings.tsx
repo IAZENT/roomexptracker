@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Plus, X, Tags } from "lucide-react";
+import { toast } from "sonner";
 import {
   addCustomExpenseType,
   deleteCustomExpenseType,
@@ -36,12 +37,14 @@ export function CustomTypesSettings({
       setError(result.error);
     } else {
       setNewType("");
+      toast.success("Type added", { description: name });
     }
     setAdding(false);
   };
 
   const handleDelete = async (typeId: string) => {
     await deleteCustomExpenseType(typeId);
+    toast.success("Type removed");
   };
 
   return (

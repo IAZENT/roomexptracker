@@ -11,14 +11,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Download } from "lucide-react";
+import { EXPENSE_TYPE_LABELS } from "@/lib/constants";
 import type { Receipt } from "./actions";
-
-const EXPENSE_TYPE_LABELS: Record<string, string> = {
-  electricity: "Electricity",
-  groceries: "Groceries",
-  drinking_water: "Drinking water",
-  other: "Other",
-};
 
 export function ReceiptView({
   receipt,
@@ -99,8 +93,7 @@ export function ReceiptView({
 
       <div
         ref={receiptRef}
-        className="rounded-xl border border-border bg-card p-6 text-sm"
-        style={{ width: 400 }}
+        className="w-full max-w-[400px] rounded-xl border border-border bg-card p-6 text-sm"
       >
         <div className="mb-4 text-center">
           <h3 className="text-lg font-semibold text-foreground">{householdName}</h3>

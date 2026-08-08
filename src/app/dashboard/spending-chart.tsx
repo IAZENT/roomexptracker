@@ -16,38 +16,8 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { EXPENSE_TYPE_LABELS, CATEGORY_COLORS, MEMBER_COLORS } from "@/lib/constants";
 import type { CycleHistory, ExpenseWithTimestamp, ExpenseSummary, Member } from "./actions";
-
-const CATEGORY_COLORS: Record<string, string> = {
-  electricity: "oklch(0.58 0.13 40)",
-  groceries: "oklch(0.6 0.08 200)",
-  drinking_water: "oklch(0.65 0.1 140)",
-  other: "oklch(0.7 0.12 90)",
-  rent: "oklch(0.5 0.02 60)",
-  water: "oklch(0.58 0.13 40)",
-  garbage: "oklch(0.6 0.08 200)",
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-  electricity: "Electricity",
-  groceries: "Groceries",
-  drinking_water: "Drinking water",
-  other: "Other",
-  rent: "Rent",
-  water: "Water",
-  garbage: "Garbage",
-};
-
-const MEMBER_COLORS = [
-  "oklch(0.58 0.13 40)",
-  "oklch(0.6 0.08 200)",
-  "oklch(0.65 0.1 140)",
-  "oklch(0.7 0.12 90)",
-  "oklch(0.5 0.02 60)",
-  "oklch(0.55 0.15 280)",
-  "oklch(0.65 0.15 160)",
-  "oklch(0.7 0.08 50)",
-];
 
 const CHART_TABS = [
   { id: "timeline", label: "Timeline" },
@@ -184,11 +154,11 @@ function TimelineChart({
             contentStyle={tooltipStyle}
             formatter={(value, name) => [
               `${currency} ${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
-              CATEGORY_LABELS[name as string] ?? name,
+              EXPENSE_TYPE_LABELS[name as string] ?? name,
             ]}
           />
           <Legend
-            formatter={(value: string) => CATEGORY_LABELS[value] ?? value}
+            formatter={(value: string) => EXPENSE_TYPE_LABELS[value] ?? value}
             wrapperStyle={{ fontSize: "11px" }}
           />
           {allTypes.map((t, i) => (
@@ -220,7 +190,7 @@ function CategoryPieChart({
   const data = useMemo(() => {
     return Object.entries(summary.totalByType)
       .map(([type, amount]) => ({
-        name: CATEGORY_LABELS[type] ?? type,
+        name: EXPENSE_TYPE_LABELS[type] ?? type,
         value: amount,
         color: CATEGORY_COLORS[type] ?? "oklch(0.5 0.02 60)",
       }))

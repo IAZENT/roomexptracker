@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useActionState } from "react";
+import { useState, useActionState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,22 +13,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
 import { Plus } from "lucide-react";
+import { EXPENSE_TYPES, EXPENSE_TYPE_LABELS } from "@/lib/constants";
 import { addExpense, type ExpenseActionState, type Member, type CustomExpenseType } from "./actions";
-
-const DEFAULT_TYPES = [
-  { value: "electricity", label: "Electricity" },
-  { value: "groceries", label: "Groceries" },
-  { value: "drinking_water", label: "Drinking water" },
-  { value: "other", label: "Other" },
-] as const;
-
-const LABELS: Record<string, string> = {
-  electricity: "Electricity",
-  groceries: "Groceries",
-  drinking_water: "Drinking water",
-  other: "Other",
-};
 
 const initialState: ExpenseActionState = { error: null };
 
@@ -77,15 +65,28 @@ export function AddExpenseDialog({
 
   // Build full type list: defaults + custom
   const allTypes = [
-    ...DEFAULT_TYPES,
+    ...EXPENSE_TYPES,
     ...customTypes.map((t) => ({ value: t.name.toLowerCase(), label: t.name })),
   ];
 
   // Merge labels for display
-  const typeLabels: Record<string, string> = { ...LABELS };
+  const typeLabels: Record<string, string> = { ...EXPENSE_TYPE_LABELS };
   for (const t of customTypes) {
     typeLabels[t.name.toLowerCase()] = t.name;
   }
+
+  // Track previous state to detect success
+  const prevStateRef = useRef(state);
+  useEffect(() => {
+    // Detect transition from pending/error to success
+    if (prevStateRef.current !== state && state && !state.error && state.values?.type && state.values?.amount) {
+      toast.success("Expense added", {
+        description: `${typeLabels[state.values.type] ?? state.values.type} - ${currency} ${parseFloat(state.values.amount).toFixed(2)}`,
+      });
+      setOpen(false);
+    }
+    prevStateRef.current = state;
+  }, [state, typeLabels, currency]);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>

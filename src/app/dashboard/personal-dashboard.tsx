@@ -1,14 +1,8 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EXPENSE_TYPE_LABELS } from "@/lib/constants";
 import type { PersonalSummary, Member } from "./actions";
-
-const EXPENSE_TYPE_LABELS: Record<string, string> = {
-  electricity: "Electricity",
-  groceries: "Groceries",
-  drinking_water: "Drinking water",
-  other: "Other",
-};
 
 export function PersonalDashboard({
   summary,
