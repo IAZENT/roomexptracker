@@ -11,6 +11,7 @@ import { ReceiptDialog } from "./receipt-view";
 import { ArchiveHouseholdButton } from "./archive-household";
 import { PersonalDashboard } from "./personal-dashboard";
 import { CustomTypesSettings } from "./custom-types-settings";
+import { closeCycle } from "./actions";
 import { EXPENSE_TYPE_LABELS } from "@/lib/constants";
 import type { FixedBill, BillingCycle, Expense, Member, CycleHistory, Receipt, ExpenseWithTimestamp, ExpenseSummary, PersonalSummary, CustomExpenseType, ExpenseShare } from "./actions";
 
@@ -60,12 +61,13 @@ export function HouseholdOverview({
   expenseShares: Record<string, ExpenseShare[]>;
 }) {
   const [view, setView] = useState<DashboardView>("shared");
-  const closedCycles = cycles.filter((c) => c.status === "closed");
-  const cycleTotal = expenses.reduce((sum, e) => sum + e.amount, 0);
   const [showAllExpenses, setShowAllExpenses] = useState(false);
+  const [closing, setClosing] = useState(false);
   const EXPENSES_PAGE_SIZE = 10;
   const visibleExpenses = showAllExpenses ? expenses : expenses.slice(0, EXPENSES_PAGE_SIZE);
   const hasMoreExpenses = expenses.length > EXPENSES_PAGE_SIZE;
+  const cycleTotal = summary.grandTotal;
+  const closedCycles = cycles.filter((c) => c.status === "closed");
 
   // Merge labels for expense list display
   const allTypeLabels = { ...EXPENSE_TYPE_LABELS };
@@ -221,6 +223,31 @@ export function HouseholdOverview({
                 </div>
               </CardContent>
             </Card>
+          )}
+
+          {/* Close cycle button (owner only) */}
+          {role === "owner" && currentCycle && expenses.length > 0 && (
+            <div className="mt-3">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1.5"
+                disabled={closing}
+                onClick={async () => {
+                  setClosing(true);
+                  const result = await closeCycle(currentCycle.id);
+                  setClosing(false);
+                  if (result.error) {
+                    const { toast } = await import("sonner");
+                    toast.error(result.error);
+                  } else {
+                    window.location.reload();
+                  }
+                }}
+              >
+                {closing ? "Closing..." : "Close cycle & generate receipts"}
+              </Button>
+            </div>
           )}
 
           {/* Expenses list */}

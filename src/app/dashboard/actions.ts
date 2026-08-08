@@ -397,6 +397,63 @@ async function generateReceipts(
   }
 }
 
+export async function closeCycle(
+  cycleId: string,
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  // Get the cycle and verify ownership
+  const { data: cycle } = await supabase
+    .from("billing_cycles")
+    .select("id, household_id, status")
+    .eq("id", cycleId)
+    .single();
+
+  if (!cycle) return { error: "Cycle not found." };
+  if (cycle.status !== "open") return { error: "Cycle is already closed." };
+
+  // Verify user is owner
+  const { data: membership } = await supabase
+    .from("household_members")
+    .select("role")
+    .eq("household_id", cycle.household_id)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!membership || membership.role !== "owner") {
+    return { error: "Only the household owner can close a cycle." };
+  }
+
+  // Get active member count
+  const { count } = await supabase
+    .from("household_members")
+    .select("*", { count: "exact", head: true })
+    .eq("household_id", cycle.household_id)
+    .is("left_at", null);
+
+  // Close the cycle
+  const { error: closeError } = await supabase
+    .from("billing_cycles")
+    .update({
+      status: "closed",
+      member_count_snapshot: count || 0,
+      closed_at: new Date().toISOString(),
+    })
+    .eq("id", cycleId);
+
+  if (closeError) return { error: closeError.message };
+
+  // Generate receipts
+  await generateReceipts(cycle.household_id, cycleId, count || 0);
+
+  revalidatePath("/dashboard");
+  return { error: null };
+}
+
 export async function getCycles(householdId: string): Promise<BillingCycle[]> {
   const supabase = await createClient();
   const { data } = await supabase
