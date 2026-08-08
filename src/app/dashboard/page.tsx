@@ -70,48 +70,52 @@ export default async function DashboardPage() {
   const closedCycleReceipts: Record<string, Awaited<ReturnType<typeof getReceiptsForCycle>>> = {};
   let balanceHistory: Awaited<ReturnType<typeof getBalanceHistory>> = [];
 
+  // Only two sequential network round-trips total (was up to 5): everything
+  // that doesn't need the resolved current-cycle id runs together first,
+  // then everything that does (plus per-cycle receipts, which only need
+  // the `cycles` list from round 1) runs together in round 2.
+  let archivedHouseholds: Awaited<ReturnType<typeof getArchivedHouseholds>> = [];
+
   if (active?.household) {
     const hid = active.household.id;
 
-    // Fetch all data in parallel for faster page load
-    [bills, currentCycle, cycles, cycleHistory, timeline, summary, personalSummary, customTypes, members] = await Promise.all([
-      getFixedBills(hid),
-      ensureCurrentCycle(hid, active.household.cycle_end_day),
-      getCycles(hid),
-      getCycleHistory(hid),
-      getExpenseTimeline(hid),
-      getExpenseSummary(hid, null),
-      getPersonalSummary(hid, null, user.id),
-      getCustomExpenseTypes(hid),
-      getActiveMembers(hid),
+    [bills, currentCycle, cycles, cycleHistory, timeline, customTypes, members, balanceHistory, archivedHouseholds] =
+      await Promise.all([
+        getFixedBills(hid),
+        ensureCurrentCycle(hid, active.household.cycle_end_day),
+        getCycles(hid),
+        getCycleHistory(hid),
+        getExpenseTimeline(hid),
+        getCustomExpenseTypes(hid),
+        getActiveMembers(hid),
+        getBalanceHistory(hid),
+        getArchivedHouseholds(user.id),
+      ]);
+
+    const closedCycles = cycles.filter((c) => c.status === "closed");
+
+    const [cycleData, receiptResults] = await Promise.all([
+      currentCycle
+        ? Promise.all([
+            getExpenses(currentCycle.id),
+            getExpenseSummary(hid, currentCycle.id),
+            getPersonalSummary(hid, currentCycle.id, user.id),
+            getExpenseSharesForCycle(currentCycle.id),
+            getCloseRequestForCycle(currentCycle.id),
+          ])
+        : null,
+      Promise.all(closedCycles.map((c) => getReceiptsForCycle(c.id))),
     ]);
 
-    if (currentCycle) {
-      [expenses, summary, personalSummary, expenseShares, closeRequest] = await Promise.all([
-        getExpenses(currentCycle.id),
-        getExpenseSummary(hid, currentCycle.id),
-        getPersonalSummary(hid, currentCycle.id, user.id),
-        getExpenseSharesForCycle(currentCycle.id),
-        getCloseRequestForCycle(currentCycle.id),
-      ]);
+    if (cycleData) {
+      [expenses, summary, personalSummary, expenseShares, closeRequest] = cycleData;
     }
-
-    // Fetch receipts for closed cycles in parallel
-    const closedCycles = cycles.filter((c) => c.status === "closed");
-    if (closedCycles.length > 0) {
-      const receiptResults = await Promise.all(
-        closedCycles.map((c) => getReceiptsForCycle(c.id)),
-      );
-      closedCycles.forEach((c, i) => {
-        closedCycleReceipts[c.id] = receiptResults[i];
-      });
-    }
-
-    // Fetch balance history
-    balanceHistory = await getBalanceHistory(hid);
+    closedCycles.forEach((c, i) => {
+      closedCycleReceipts[c.id] = receiptResults[i];
+    });
+  } else {
+    archivedHouseholds = await getArchivedHouseholds(user.id);
   }
-
-  const archivedHouseholds = await getArchivedHouseholds(user.id);
 
   return (
     <div className="min-h-svh bg-background">

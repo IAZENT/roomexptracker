@@ -1,5 +1,16 @@
-const CACHE_NAME = "roommate-v3";
+const CACHE_NAME = "roommate-v4";
 const SYNC_TAG = "roommate-shopping-sync";
+
+// Next.js content-hashes everything under /_next/static/, so it's safe (and
+// much faster on repeat visits/mobile) to serve those straight from cache
+// without waiting on the network at all.
+function isImmutableAsset(url) {
+  return (
+    url.pathname.startsWith("/_next/static/") ||
+    url.pathname.startsWith("/_next/image") ||
+    /\.(png|jpg|jpeg|webp|svg|ico|woff2?)$/i.test(url.pathname)
+  );
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -45,7 +56,33 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/")) return;
   if (url.hostname.includes("supabase")) return;
 
-  // Network first for everything, cache on success, fallback to cache offline
+  // Cache-first for immutable static assets - instant on repeat visits,
+  // no network round-trip at all unless the cache is empty.
+  if (isImmutableAsset(url)) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        if (cached) {
+          // Refresh the cache in the background so it doesn't go stale forever.
+          fetch(event.request).then((response) => {
+            if (response.ok) {
+              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response));
+            }
+          }).catch(() => {});
+          return cached;
+        }
+        return fetch(event.request).then((response) => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        });
+      }),
+    );
+    return;
+  }
+
+  // Network first for pages/data, cache on success, fallback to cache offline
   event.respondWith(
     fetch(event.request)
       .then((response) => {

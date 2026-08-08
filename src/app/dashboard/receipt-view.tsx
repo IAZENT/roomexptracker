@@ -1,8 +1,6 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { toPng } from "html-to-image";
-import { jsPDF } from "jspdf";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -36,10 +34,13 @@ export function ReceiptView({
   const totalFixed = Object.values(fixed_bills).reduce((s, v) => s + v, 0);
   const totalExpenses = expense_shares.reduce((s, e) => s + e.share, 0);
 
+  // html-to-image and jspdf are only loaded when actually exporting, not
+  // bundled into the main dashboard JS that every visit pays for.
   const handleExportPng = async () => {
     if (!receiptRef.current) return;
     setExporting(true);
     try {
+      const { toPng } = await import("html-to-image");
       const dataUrl = await toPng(receiptRef.current, {
         backgroundColor: "#fefdfb",
         pixelRatio: 2,
@@ -57,6 +58,10 @@ export function ReceiptView({
     if (!receiptRef.current) return;
     setExporting(true);
     try {
+      const [{ toPng }, { jsPDF }] = await Promise.all([
+        import("html-to-image"),
+        import("jspdf"),
+      ]);
       const dataUrl = await toPng(receiptRef.current, {
         backgroundColor: "#fefdfb",
         pixelRatio: 2,

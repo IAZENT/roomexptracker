@@ -1483,12 +1483,34 @@ export async function getExpenseSummary(
     variableTotal: 0,
   };
 
-  // Get fixed bills
-  const { data: bills } = await supabase
-    .from("fixed_bills")
-    .select("type, amount")
-    .eq("household_id", householdId)
-    .order("effective_from", { ascending: false });
+  // Get expenses for the cycle (or all if no cycle)
+  let query = supabase
+    .from("expenses")
+    .select("id, type, amount, paid_by, settled")
+    .eq("household_id", householdId);
+
+  if (cycleId) {
+    query = query.eq("cycle_id", cycleId);
+  }
+
+  // Fixed bills, expenses, and members are all independent - fetch together.
+  const [{ data: bills }, { data: expenses }, { data: membersForPayer }] = await Promise.all([
+    supabase
+      .from("fixed_bills")
+      .select("type, amount")
+      .eq("household_id", householdId)
+      .order("effective_from", { ascending: false }),
+    query,
+    // Members' pays_for, so "who paid" credit reflects coverage: if the
+    // payer covers someone else, that person is credited as having paid
+    // their share too (e.g. Aashutosh pays for Arun -> Arun shows as
+    // having paid half), not 100% attributed to whoever physically paid.
+    supabase
+      .from("household_members")
+      .select("user_id, pays_for")
+      .eq("household_id", householdId)
+      .is("left_at", null),
+  ]);
 
   const seenBills = new Map<string, number>();
   if (bills) {
@@ -1500,27 +1522,6 @@ export async function getExpenseSummary(
     summary.fixedBillsTotal += amount;
   }
 
-  // Get expenses for the cycle (or all if no cycle)
-  let query = supabase
-    .from("expenses")
-    .select("id, type, amount, paid_by, settled")
-    .eq("household_id", householdId);
-
-  if (cycleId) {
-    query = query.eq("cycle_id", cycleId);
-  }
-
-  const { data: expenses } = await query;
-
-  // Members' pays_for, so "who paid" credit reflects coverage: if the
-  // payer covers someone else, that person is credited as having paid
-  // their share too (e.g. Aashutosh pays for Arun -> Arun shows as
-  // having paid half), not 100% attributed to whoever physically paid.
-  const { data: membersForPayer } = await supabase
-    .from("household_members")
-    .select("user_id, pays_for")
-    .eq("household_id", householdId)
-    .is("left_at", null);
   const activePayerIds = new Set((membersForPayer ?? []).map((m) => m.user_id));
   const paysForByUser = new Map<string, string[] | null>(
     (membersForPayer ?? []).map((m) => [m.user_id, m.pays_for]),
@@ -1981,8 +1982,31 @@ export async function getPersonalSummary(
     .eq("paid_by", userId);
 
   if (cycleId) paidQuery = paidQuery.eq("cycle_id", cycleId);
+  paidQuery = paidQuery.order("created_at", { ascending: false });
 
-  const { data: paidExpenses } = await paidQuery.order("created_at", { ascending: false });
+  // These four queries are all independent of each other - fire them
+  // together instead of awaiting one at a time.
+  const [{ data: paidExpenses }, { data: shares }, membersResult, billsResult] = await Promise.all([
+    paidQuery,
+    supabase
+      .from("expense_shares")
+      .select("share_amount, expense:expenses(id, cycle_id, type, paid_by, created_at, settled)")
+      .eq("user_id", userId),
+    cycleId
+      ? supabase
+          .from("household_members")
+          .select("user_id, pays_for")
+          .eq("household_id", householdId)
+          .is("left_at", null)
+      : Promise.resolve({ data: null }),
+    cycleId
+      ? supabase
+          .from("fixed_bills")
+          .select("type, amount")
+          .eq("household_id", householdId)
+          .order("effective_from", { ascending: false })
+      : Promise.resolve({ data: null }),
+  ]);
 
   // Daily aggregation
   const dailyMap: Record<string, { paid: number; owed: number }> = {};
@@ -1998,14 +2022,6 @@ export async function getPersonalSummary(
       dailyMap[day].paid += e.amount;
     }
   }
-
-  // Single query for all share data
-  const shareQuery = supabase
-    .from("expense_shares")
-    .select("share_amount, expense:expenses(id, cycle_id, type, paid_by, created_at, settled)")
-    .eq("user_id", userId);
-
-  const { data: shares } = await shareQuery;
 
   if (shares) {
     const payerMap: Record<string, number> = {};
@@ -2059,17 +2075,8 @@ export async function getPersonalSummary(
   // equal-split + pays_for coverage logic as variable expenses, so it's
   // consistent rather than a separately-tuned formula.
   if (cycleId) {
-    const { data: allMembers } = await supabase
-      .from("household_members")
-      .select("user_id, pays_for")
-      .eq("household_id", householdId)
-      .is("left_at", null);
-
-    const { data: bills } = await supabase
-      .from("fixed_bills")
-      .select("type, amount")
-      .eq("household_id", householdId)
-      .order("effective_from", { ascending: false });
+    const allMembers = membersResult.data;
+    const bills = billsResult.data;
 
     const seenBills = new Map<string, number>();
     for (const b of bills ?? []) {
