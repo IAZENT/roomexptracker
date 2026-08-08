@@ -2,10 +2,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { AuthPanel } from "./auth-panel";
-import { LoginForm } from "./login-form";
+import { AuthPanel } from "@/app/login/auth-panel";
+import { SignupForm } from "./signup-form";
 
-export default async function LoginPage() {
+export default async function SignupPage() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -31,18 +31,18 @@ export default async function LoginPage() {
           </div>
 
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-            Welcome back
+            Create your account
           </h1>
           <p className="mt-2 mb-10 text-muted-foreground">
-            Log in to continue managing your room expenses.
+            Join your flatmates and start tracking shared expenses.
           </p>
 
-          <LoginForm />
+          <SignupForm />
 
           <p className="mt-8 text-center text-sm text-muted-foreground">
-            Don&apos;t have an account?{" "}
-            <Link href="/signup" className="font-medium text-primary hover:underline">
-              Sign up
+            Already have an account?{" "}
+            <Link href="/login" className="font-medium text-primary hover:underline">
+              Log in
             </Link>
           </p>
         </div>

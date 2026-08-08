@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Room Expenses",
-  description: "Track shared rent, bills, and expenses with your roommates.",
+  title: "RoomMate",
+  description: "Track. Split. Settle. Stay together.",
   icons: {
     icon: "/favicon.ico",
     apple: "/apple-touch-icon.png",

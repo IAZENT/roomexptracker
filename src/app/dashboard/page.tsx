@@ -16,9 +16,9 @@ export default async function DashboardPage() {
     <div className="min-h-svh bg-background">
       <header className="flex items-center justify-between border-b border-border px-6 py-4">
         <div className="flex items-center gap-2">
-          <Image src="/logo.png" alt="" width={28} height={28} className="rounded-lg" />
+          <Image src="/logo-mark.png" alt="" width={28} height={28} className="rounded-lg" />
           <h1 className="text-lg font-semibold tracking-tight text-foreground">
-            Room Expenses
+            RoomMate
           </h1>
         </div>
         <form action={signOut}>

@@ -39,6 +39,9 @@ yarn-error.log*
 # local-only progress/planning notes, not pushed to GitHub
 /docs
 
+# local-only design references/source assets, not pushed to GitHub
+/Resources
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

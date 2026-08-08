@@ -28,13 +28,19 @@ export async function signUp(
 ): Promise<AuthState> {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
+  const confirmPassword = formData.get("confirmPassword") as string;
   const fullName = formData.get("fullName") as string;
+  const phone = (formData.get("phone") as string) || null;
+
+  if (password !== confirmPassword) {
+    return { error: "Passwords do not match." };
+  }
 
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { full_name: fullName } },
+    options: { data: { full_name: fullName, phone } },
   });
 
   if (error) return { error: error.message };
