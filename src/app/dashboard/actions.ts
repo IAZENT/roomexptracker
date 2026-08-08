@@ -566,32 +566,68 @@ export async function requestCycleClose(
   if (!cycle) return { error: "Cycle not found." };
   if (cycle.status !== "open") return { error: "Cycle is already closed." };
 
-  // Check if a pending request already exists
+  // cycle_close_requests.cycle_id is UNIQUE - there's at most one row per
+  // cycle, ever. A rejected request can't just be re-inserted; it has to
+  // be reused (reset back to pending) after a cooldown.
+  const COOLDOWN_MS = 5 * 60 * 1000;
   const { data: existing } = await supabase
     .from("cycle_close_requests")
-    .select("id")
+    .select("id, status, decided_at")
     .eq("cycle_id", cycleId)
-    .eq("status", "pending")
-    .single();
+    .maybeSingle();
 
-  if (existing) return { error: "A close request is already pending." };
+  let requestId: string;
 
-  // Create the request
-  const { data: request, error: reqError } = await supabase
-    .from("cycle_close_requests")
-    .insert({
-      cycle_id: cycleId,
-      requested_by: user.id,
-      status: "pending",
-    })
-    .select()
-    .single();
+  if (existing) {
+    if (existing.status === "pending") {
+      return { error: "A close request is already pending." };
+    }
+    if (existing.status === "approved") {
+      return { error: "This cycle's close request was already approved." };
+    }
 
-  if (reqError) return { error: reqError.message };
+    // Rejected - allow re-requesting once the cooldown has passed.
+    const decidedAtMs = existing.decided_at ? new Date(existing.decided_at).getTime() : 0;
+    const elapsed = Date.now() - decidedAtMs;
+    if (elapsed < COOLDOWN_MS) {
+      const minutesLeft = Math.ceil((COOLDOWN_MS - elapsed) / 60000);
+      return {
+        error: `This close request was declined. You can request again in ${minutesLeft} minute${minutesLeft === 1 ? "" : "s"}.`,
+      };
+    }
+
+    // Reset the existing row to a fresh pending request and clear old votes.
+    await supabase.from("cycle_close_approvals").delete().eq("request_id", existing.id);
+    const { error: resetError } = await supabase
+      .from("cycle_close_requests")
+      .update({
+        status: "pending",
+        requested_by: user.id,
+        created_at: new Date().toISOString(),
+        decided_at: null,
+      })
+      .eq("id", existing.id);
+
+    if (resetError) return { error: resetError.message };
+    requestId = existing.id;
+  } else {
+    const { data: request, error: reqError } = await supabase
+      .from("cycle_close_requests")
+      .insert({
+        cycle_id: cycleId,
+        requested_by: user.id,
+        status: "pending",
+      })
+      .select()
+      .single();
+
+    if (reqError) return { error: reqError.message };
+    requestId = request.id;
+  }
 
   // Auto-approve for the requester
   await supabase.from("cycle_close_approvals").insert({
-    request_id: request.id,
+    request_id: requestId,
     user_id: user.id,
     approved: true,
   });
@@ -645,7 +681,7 @@ export async function approveCycleClose(
     // Reject the whole request
     await supabase
       .from("cycle_close_requests")
-      .update({ status: "rejected" })
+      .update({ status: "rejected", decided_at: new Date().toISOString() })
       .eq("id", requestId);
     revalidatePath("/dashboard");
     return { error: null };
