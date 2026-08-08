@@ -151,7 +151,7 @@ export function PersonalDashboard({
                 )}
               </span>
               <span className="font-medium text-foreground">
-                {currency} {(includeFixedBills ? summary.totalResponsibility : summary.totalOwed).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                {currency} {(includeFixedBills ? summary.totalResponsibility : summary.totalShareOfSpend).toLocaleString(undefined, { minimumFractionDigits: 2 })}
               </span>
             </div>
           </div>

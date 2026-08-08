@@ -1967,7 +1967,14 @@ export type PersonalSummary = {
   topPayerBreakdown: { name: string; amount: number }[];
   // Your coverage-adjusted share of this cycle's fixed bills (rent, water...).
   fixedBillsShare: number;
-  // totalOwed + fixedBillsShare - everything you're on the hook for this cycle.
+  // Your share of variable expenses only (settled + unsettled combined) -
+  // matches the shared dashboard's "Your share" (totalByMember). This is
+  // what "Room expenses only" mode should display, not totalOwed (which
+  // deliberately excludes settled amounts for the "who you still owe"
+  // breakdown - a different, narrower concept).
+  totalShareOfSpend: number;
+  // totalShareOfSpend + fixedBillsShare - everything you're on the hook
+  // for this cycle.
   totalResponsibility: number;
   // totalResponsibility - totalPaid. Positive = you still need to pay this
   // much; negative = you've paid more than your share and are owed back.
@@ -1994,6 +2001,7 @@ export async function getPersonalSummary(
     dailySpending: [],
     topPayerBreakdown: [],
     fixedBillsShare: 0,
+    totalShareOfSpend: 0,
     totalResponsibility: 0,
     remainingToPay: 0,
     remainingToPayVariableOnly: 0,
@@ -2157,6 +2165,7 @@ export async function getPersonalSummary(
   // "Your share" (household-overview.tsx uses totalByMember, which is also
   // settled-inclusive) - this is "your total" in the everyday sense, not
   // just what's still outstanding.
+  summary.totalShareOfSpend = totalShareOfSpend;
   summary.totalResponsibility = totalShareOfSpend + summary.fixedBillsShare;
   summary.remainingToPay = summary.totalResponsibility - summary.totalPaid;
   summary.remainingToPayVariableOnly = totalShareOfSpend - summary.totalPaid;

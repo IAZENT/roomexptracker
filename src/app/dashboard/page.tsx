@@ -62,6 +62,7 @@ export default async function DashboardPage() {
     dailySpending: [],
     topPayerBreakdown: [],
     fixedBillsShare: 0,
+    totalShareOfSpend: 0,
     totalResponsibility: 0,
     remainingToPay: 0,
     remainingToPayVariableOnly: 0,
