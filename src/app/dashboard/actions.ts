@@ -7,43 +7,54 @@ import { createClient } from "@/lib/supabase/server";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Split an expense based on the PAYER's pays_for coverage.
- *  "B1 pays for B2" means: when B1 pays, the expense splits only between
- *  B1 and B2 - not the whole household. If the payer hasn't configured
- *  pays_for beyond themselves ("self only"), fall back to the normal
- *  equal split across every active member. */
+/** Split an expense equally across every active member (amount / N, so
+ *  everyone's "fair share" always stays equal), then redirect any covered
+ *  member's share onto whoever covers them - independent of who actually
+ *  paid for this particular expense. "A pays for B" means B never owes
+ *  their own portion; A's total responsibility grows by B's portion
+ *  instead. Who fronted the money for a given expense (paid_by) only
+ *  matters for settlement direction, not for this division. */
 function splitByCoverage(
   amount: number,
-  payerId: string,
-  payerPaysFor: string[] | null,
-  allMembers: { user_id: string }[],
+  allMembers: { user_id: string; pays_for: string[] | null }[],
 ): { user_id: string; share_amount: number }[] {
-  if (allMembers.length === 0) return [];
+  const n = allMembers.length;
+  if (n === 0) return [];
 
   const activeIds = new Set(allMembers.map((m) => m.user_id));
 
-  let coveredIds: string[];
-  if (payerPaysFor && payerPaysFor.length > 1) {
-    coveredIds = payerPaysFor.filter((id) => activeIds.has(id));
-    if (!coveredIds.includes(payerId)) coveredIds.push(payerId);
-  } else {
-    coveredIds = allMembers.map((m) => m.user_id);
+  // Map each covered member to whoever covers them (their "guardian").
+  // A member only acts as a guardian if they've explicitly listed more
+  // than just themselves in pays_for.
+  const guardianOf = new Map<string, string>();
+  for (const m of allMembers) {
+    if (m.pays_for && m.pays_for.length > 1) {
+      for (const coveredId of m.pays_for) {
+        if (coveredId !== m.user_id && activeIds.has(coveredId)) {
+          guardianOf.set(coveredId, m.user_id);
+        }
+      }
+    }
   }
-  if (coveredIds.length === 0) coveredIds = [payerId];
 
-  const share = amount / coveredIds.length;
+  const baseShare = amount / n;
+  const totals = new Map<string, number>();
+  for (const m of allMembers) {
+    const owner = guardianOf.get(m.user_id) ?? m.user_id;
+    totals.set(owner, (totals.get(owner) ?? 0) + baseShare);
+  }
 
-  // Round to 2 decimals, give remainder to the payer.
-  const rounded = coveredIds.map((id) => ({
-    user_id: id,
+  // Round to 2 decimals, give remainder to whichever row is largest.
+  const rounded = [...totals.entries()].map(([user_id, share]) => ({
+    user_id,
     share_amount: Math.floor(share * 100) / 100,
   }));
 
   const totalRounded = rounded.reduce((sum, r) => sum + r.share_amount, 0);
   const remainder = Math.round((amount - totalRounded) * 100) / 100;
   if (remainder !== 0 && rounded.length > 0) {
-    const payerRow = rounded.find((r) => r.user_id === payerId) ?? rounded[0];
-    payerRow.share_amount = Math.round((payerRow.share_amount + remainder) * 100) / 100;
+    const largest = rounded.reduce((a, b) => (b.share_amount > a.share_amount ? b : a));
+    largest.share_amount = Math.round((largest.share_amount + remainder) * 100) / 100;
   }
 
   return rounded;
@@ -901,8 +912,7 @@ export async function addExpense(
       .is("left_at", null);
 
     if (members && members.length > 0) {
-      const payer = members.find((m) => m.user_id === paidBy);
-      shares = splitByCoverage(amount, paidBy, payer?.pays_for ?? null, members);
+      shares = splitByCoverage(amount, members);
     }
   }
 
@@ -1042,12 +1052,8 @@ export async function updateExpense(
   if (error) return { error: error.message };
 
   // Recalculate shares if amount or payer changed (payer determines coverage)
-  const finalPaidBy = data.paid_by ?? current.paid_by;
-  const finalAmount = data.amount ?? current.amount;
-  if (
-    (data.amount !== undefined && data.amount !== current.amount) ||
-    (data.paid_by !== undefined && data.paid_by !== current.paid_by)
-  ) {
+  // Coverage doesn't depend on who paid, only recalc when amount changes.
+  if (data.amount !== undefined && data.amount !== current.amount) {
     const { data: members } = await supabase
       .from("household_members")
       .select("user_id, pays_for")
@@ -1055,8 +1061,7 @@ export async function updateExpense(
       .is("left_at", null);
 
     if (members && members.length > 0) {
-      const payer = members.find((m) => m.user_id === finalPaidBy);
-      const newShares = splitByCoverage(finalAmount, finalPaidBy, payer?.pays_for ?? null, members);
+      const newShares = splitByCoverage(data.amount, members);
       await supabase.from("expense_shares").delete().eq("expense_id", expenseId);
       await supabase.from("expense_shares").insert(
         newShares.map((s) => ({
@@ -1704,8 +1709,7 @@ export async function convertShoppingToExpense(
     .is("left_at", null);
 
   if (members && members.length > 0) {
-    const payer = members.find((m) => m.user_id === paidBy);
-    const newShares = splitByCoverage(total, paidBy, payer?.pays_for ?? null, members);
+    const newShares = splitByCoverage(total, members);
     await supabase.from("expense_shares").insert(
       newShares.map((s) => ({
         expense_id: expense.id,
