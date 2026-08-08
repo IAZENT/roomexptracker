@@ -1,30 +1,22 @@
-const CACHE_NAME = "roommate-v2";
+const CACHE_NAME = "roommate-v3";
 const SYNC_TAG = "roommate-shopping-sync";
-
-// App shell - pre-cached on install
-const APP_SHELL = [
-  "/",
-  "/login",
-  "/signup",
-  "/dashboard",
-  "/dashboard/shopping",
-  "/icon-192.png",
-  "/icon-512.png",
-  "/logo-mark.png",
-  "/manifest.json",
-];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      // Cache app shell, don't fail if some assets are missing
       return Promise.allSettled(
-        APP_SHELL.map((url) =>
-          fetch(url).then((response) => {
-            if (response.ok) {
-              return cache.put(url, response);
-            }
-          }),
+        [
+          "/",
+          "/login",
+          "/signup",
+          "/dashboard",
+          "/dashboard/shopping",
+          "/icon-192.png",
+          "/icon-512.png",
+          "/logo-mark.png",
+          "/manifest.json",
+        ].map((url) =>
+          fetch(url).then((r) => (r.ok ? cache.put(url, r) : null)),
         ),
       );
     }),
@@ -36,7 +28,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)),
+        keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)),
       ),
     ),
   );
@@ -47,58 +39,30 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
   const url = new URL(event.request.url);
-
-  // Skip non-http and extension requests
   if (!url.protocol.startsWith("http")) return;
 
-  // Skip API routes and Supabase
+  // Skip API and Supabase
   if (url.pathname.startsWith("/api/")) return;
   if (url.hostname.includes("supabase")) return;
 
-  // Skip chrome extensions and other non-page requests
-  if (!url.pathname.startsWith("/")) return;
+  // Network first for everything, cache on success, fallback to cache offline
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        // Cache successful responses
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return response;
+      })
+      .catch(() => {
+        // Offline: try cache
+        return caches.match(event.request).then((cached) => {
+          if (cached) return cached;
 
-  const isStaticAsset =
-    url.pathname.endsWith(".js") ||
-    url.pathname.endsWith(".css") ||
-    url.pathname.endsWith(".png") ||
-    url.pathname.endsWith(".jpg") ||
-    url.pathname.endsWith(".svg") ||
-    url.pathname.endsWith(".ico") ||
-    url.pathname.endsWith(".woff2") ||
-    url.pathname.endsWith(".woff");
-
-  const isNavigation = event.request.mode === "navigate";
-
-  if (isStaticAsset) {
-    // Cache first for static assets, fallback to network
-    event.respondWith(
-      caches.match(event.request).then((cached) => {
-        if (cached) return cached;
-        return fetch(event.request).then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        });
-      }),
-    );
-  } else if (isNavigation) {
-    // Network first for navigation, fallback to cache, then offline page
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => {
-          return caches.match(event.request).then((cached) => {
-            if (cached) return cached;
-            // Return offline-friendly response for navigation
+          // For navigation, return offline page
+          if (event.request.mode === "navigate") {
             return new Response(
               `<!DOCTYPE html>
               <html><head><title>Offline</title>
@@ -113,23 +77,12 @@ self.addEventListener("fetch", (event) => {
               </div></body></html>`,
               { headers: { "Content-Type": "text/html" } },
             );
-          });
-        }),
-    );
-  } else {
-    // Cache first for other requests (images, fonts, etc.)
-    event.respondWith(
-      caches.match(event.request).then((cached) => {
-        return cached || fetch(event.request).then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           }
-          return response;
+
+          return Response.error();
         });
       }),
-    );
-  }
+  );
 });
 
 // Background sync for shopping items
