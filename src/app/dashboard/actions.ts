@@ -472,7 +472,7 @@ async function generateReceipts(
   // Get expenses and their shares for this cycle
   const { data: expenses } = await supabase
     .from("expenses")
-    .select("id, type, amount, paid_by")
+    .select("id, type, amount, paid_by, settled")
     .eq("cycle_id", cycleId);
 
   // Get all shares
@@ -507,7 +507,8 @@ async function generateReceipts(
     const memberShares = allShares.filter((s) => s.user_id === member.user_id);
     for (const share of memberShares) {
       const expense = (expenses ?? []).find((e) => e.id === share.expense_id);
-      if (expense) {
+      // Settled on the spot (e.g. gas) - no debt to reflect in the receipt.
+      if (expense && !expense.settled) {
         totalExpenses += share.share_amount;
         expenseSharesArr.push({
           expense_id: share.expense_id,
@@ -857,6 +858,9 @@ export type Expense = {
   created_at: string;
   metadata: { name: string; cost: number }[] | null;
   participant_ids: string[] | null;
+  // Everyone paid their share on the spot (e.g. gas) - still counts in
+  // spending history/insights, but excluded from owed-balance calculations.
+  settled: boolean;
 };
 
 export type ExpenseShare = {
@@ -882,6 +886,7 @@ export async function addExpense(
   const cycleId = formData.get("cycleId") as string;
   const itemsRaw = (formData.get("items") as string) || "";
   const participantsRaw = (formData.get("participants") as string) || "";
+  const settled = formData.get("settled") === "true";
   const values = {
     type,
     amount: amountRaw,
@@ -955,6 +960,7 @@ export async function addExpense(
       description: description ?? (items ? items.map((i) => i.name).join(", ") : null),
       metadata: items,
       participant_ids: participantIds,
+      settled,
     })
     .select()
     .single();
@@ -1107,6 +1113,7 @@ export async function updateExpense(
     description?: string | null;
     metadata?: { name: string; cost: number }[] | null;
     participant_ids?: string[] | null;
+    settled?: boolean;
   },
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
@@ -1185,7 +1192,7 @@ export async function getSettlements(cycleId: string): Promise<{ settlements: Se
   // Get all expenses for this cycle
   const { data: expenses, error: expErr } = await supabase
     .from("expenses")
-    .select("id, paid_by, amount, household_id")
+    .select("id, paid_by, amount, household_id, settled")
     .eq("cycle_id", cycleId);
 
   if (expErr) return { settlements: [], error: expErr.message };
@@ -1236,8 +1243,11 @@ export async function getSettlements(cycleId: string): Promise<{ settlements: Se
     }
   }
 
-  // For each expense: payer gets +amount, each person in shares owes -share_amount
+  // For each expense: payer gets +amount, each person in shares owes -share_amount.
+  // Skip settled-on-the-spot expenses (e.g. gas) - everyone already paid
+  // their part directly, so there's no real debt to reflect here.
   for (const exp of expenses) {
+    if (exp.settled) continue;
     balances[exp.paid_by] = (balances[exp.paid_by] ?? 0) + exp.amount;
     const shares = allShares.filter((s) => s.expense_id === exp.id);
     for (const share of shares) {
@@ -1365,7 +1375,7 @@ export async function getBalanceHistory(householdId: string): Promise<BalanceHis
   // Fetch all expenses and shares once (not per cycle)
   const cycleIds = cycles.map((c) => c.id);
   const [{ data: allExpenses }, { data: allShares }] = await Promise.all([
-    supabase.from("expenses").select("id, cycle_id, paid_by, amount").in("cycle_id", cycleIds),
+    supabase.from("expenses").select("id, cycle_id, paid_by, amount, settled").in("cycle_id", cycleIds),
     supabase.from("expense_shares").select("expense_id, user_id, share_amount"),
   ]);
 
@@ -1393,6 +1403,7 @@ export async function getBalanceHistory(householdId: string): Promise<BalanceHis
     }
 
     for (const exp of expenses) {
+      if (exp.settled) continue;
       balances[exp.paid_by] = (balances[exp.paid_by] ?? 0) + exp.amount;
       const expShares = allShares.filter((s) => s.expense_id === exp.id);
       for (const share of expShares) {
@@ -1492,7 +1503,7 @@ export async function getExpenseSummary(
   // Get expenses for the cycle (or all if no cycle)
   let query = supabase
     .from("expenses")
-    .select("id, type, amount, paid_by")
+    .select("id, type, amount, paid_by, settled")
     .eq("household_id", householdId);
 
   if (cycleId) {
@@ -1533,8 +1544,9 @@ export async function getExpenseSummary(
       summary.variableTotal += e.amount;
     }
 
-    // Get shares for per-member breakdown
-    const expenseIds = expenses.map((e) => e.id);
+    // Get shares for per-member breakdown - excludes settled-on-the-spot
+    // expenses (e.g. gas), since there's no outstanding debt for those.
+    const expenseIds = expenses.filter((e) => !e.settled).map((e) => e.id);
     if (expenseIds.length > 0) {
       const { data: shares } = await supabase
         .from("expense_shares")
@@ -1990,7 +2002,7 @@ export async function getPersonalSummary(
   // Single query for all share data
   const shareQuery = supabase
     .from("expense_shares")
-    .select("share_amount, expense:expenses(id, cycle_id, type, paid_by, created_at)")
+    .select("share_amount, expense:expenses(id, cycle_id, type, paid_by, created_at, settled)")
     .eq("user_id", userId);
 
   const { data: shares } = await shareQuery;
@@ -1999,8 +2011,10 @@ export async function getPersonalSummary(
     const payerMap: Record<string, number> = {};
 
     for (const s of shares) {
-      const exp = s.expense as unknown as { id: string; cycle_id: string; type: string; paid_by: string; created_at: string } | null;
+      const exp = s.expense as unknown as { id: string; cycle_id: string; type: string; paid_by: string; created_at: string; settled: boolean } | null;
       if (!exp) continue;
+      // Settled on the spot (e.g. gas) - no debt to track for it.
+      if (exp.settled) continue;
 
       const matchesCycle = !cycleId || exp.cycle_id === cycleId;
       if (!matchesCycle) continue;

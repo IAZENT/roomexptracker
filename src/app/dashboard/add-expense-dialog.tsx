@@ -39,12 +39,14 @@ export function AddExpenseDialog({
   const [state, action, pending] = useActionState(addExpense, initialState);
   const [items, setItems] = useState<ItemRow[]>([{ name: "", cost: "" }]);
   const [participants, setParticipants] = useState<Set<string>>(new Set(members.map((m) => m.user_id)));
+  const [settled, setSettled] = useState(false);
 
   const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen);
     if (!nextOpen) {
       setItems([{ name: "", cost: "" }]);
       setParticipants(new Set(members.map((m) => m.user_id)));
+      setSettled(false);
     }
   };
 
@@ -118,6 +120,7 @@ export function AddExpenseDialog({
           action={(formData) => {
             formData.set("items", itemsJson);
             formData.set("participants", participantsJson);
+            formData.set("settled", settled ? "true" : "false");
             formData.set("cycleId", cycleId);
             formData.set("amount", itemsTotal.toString());
             formData.set("paidBy", currentUserId);
@@ -209,6 +212,30 @@ export function AddExpenseDialog({
             {participants.size === 0 && (
               <p className="text-xs text-destructive">Select at least one person.</p>
             )}
+          </div>
+
+          <div className="flex items-start gap-2">
+            <button
+              type="button"
+              onClick={() => setSettled(!settled)}
+              className={`mt-0.5 h-5 w-5 shrink-0 rounded border transition-colors ${
+                settled
+                  ? "bg-primary border-primary text-primary-foreground"
+                  : "border-input bg-background"
+              }`}
+            >
+              {settled && (
+                <svg className="mx-auto h-3 w-3" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </button>
+            <div className="flex flex-col">
+              <Label className="text-sm">Already settled</Label>
+              <p className="text-xs text-muted-foreground">
+                Everyone paid their share on the spot (e.g. gas) - counts in spending history, but no one owes anything for it.
+              </p>
+            </div>
           </div>
 
           {state.error && (

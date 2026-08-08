@@ -396,8 +396,13 @@ export function HouseholdOverview({
                           }}
                         >
                           <div className="flex flex-col">
-                            <span className="text-sm font-medium text-foreground">
+                            <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
                               {allTypeLabels[expense.type] ?? expense.type}
+                              {expense.settled && (
+                                <Badge variant="secondary" className="px-1.5 py-0 text-[10px] font-normal">
+                                  Settled
+                                </Badge>
+                              )}
                             </span>
                             <span className="text-xs text-muted-foreground">
                               Paid by {payer?.full_name ?? "Unknown"}
@@ -410,7 +415,9 @@ export function HouseholdOverview({
                                 {household.currency} {expense.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                               </span>
                               <span className="text-xs text-muted-foreground">
-                                {household.currency} {yourShare.toLocaleString(undefined, { minimumFractionDigits: 2 })} your share
+                                {expense.settled
+                                  ? "already settled"
+                                  : `${household.currency} ${yourShare.toLocaleString(undefined, { minimumFractionDigits: 2 })} your share`}
                               </span>
                             </div>
                           {expense.paid_by === currentUserId && (
@@ -634,6 +641,7 @@ export function HouseholdOverview({
           initialDescription={editingExpense.description ?? ""}
           initialMetadata={editingExpense.metadata ?? null}
           initialParticipantIds={editingExpense.participant_ids ?? null}
+          initialSettled={editingExpense.settled}
           members={members}
           currency={household.currency}
           customTypes={customTypes}
