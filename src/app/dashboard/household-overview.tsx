@@ -369,7 +369,10 @@ export function HouseholdOverview({
                     const currentUserShare = shares.find((s) => s.user_id === currentUserId);
                     // Not a uniform "per person" split - pays_for coverage can make shares
                     // unequal, so this is specifically what the viewer owes for this expense.
-                    const yourShare = currentUserShare?.share_amount ?? (members.length > 0 ? expense.amount / members.length : 0);
+                    // No fabricated fallback: if there's no real share row (e.g. the viewer
+                    // joined the household after this expense was created), they genuinely
+                    // owe nothing for it - showing a naive amount/N guess here was misleading.
+                    const yourShare = currentUserShare?.share_amount ?? 0;
                     const isExpanded = expandedExpenses.has(expense.id);
                     const hasItems = expense.metadata && expense.metadata.length > 0;
                     return (
