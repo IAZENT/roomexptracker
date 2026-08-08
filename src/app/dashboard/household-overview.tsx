@@ -236,127 +236,6 @@ export function HouseholdOverview({
             </Card>
           )}
 
-          {/* Settlements button */}
-          {currentCycle && expenses.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full gap-1.5 mt-3"
-              onClick={() => setShowSettlements(true)}
-            >
-              View settlements
-            </Button>
-          )}
-
-          {/* Close cycle voting */}
-          {currentCycle && expenses.length > 0 && (
-            <div className="mt-3">
-              {!closeRequest.request ? (
-                /* No pending request: show "Request close" button */
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full gap-1.5"
-                  disabled={closing}
-                  onClick={async () => {
-                    setClosing(true);
-                    const result = await requestCycleClose(currentCycle.id);
-                    setClosing(false);
-                    if (result.error) {
-                      const { toast } = await import("sonner");
-                      toast.error(result.error);
-                    } else {
-                      window.location.reload();
-                    }
-                  }}
-                >
-                  {closing ? "Requesting..." : "Request cycle close"}
-                </Button>
-              ) : (
-                /* Pending request: show voting status */
-                <Card className="border-border shadow-sm">
-                  <CardContent className="pt-4">
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-foreground">Close cycle request</span>
-                        <Badge variant={closeRequest.request.status === "approved" ? "default" : "secondary"}>
-                          {closeRequest.request.status === "approved" ? "Approved" : "Pending votes"}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Requested by {members.find((m) => m.user_id === closeRequest.request!.requested_by)?.full_name ?? "Unknown"}
-                      </p>
-
-                      {/* Approval progress */}
-                      <div className="flex flex-col gap-1.5">
-                        {members.map((m) => {
-                          const approval = closeRequest.approvals.find((a) => a.user_id === m.user_id);
-                          return (
-                            <div key={m.user_id} className="flex items-center gap-2 text-xs">
-                              {approval?.approved ? (
-                                <span className="h-2 w-2 rounded-full bg-green-500" />
-                              ) : approval ? (
-                                <span className="h-2 w-2 rounded-full bg-red-500" />
-                              ) : (
-                                <span className="h-2 w-2 rounded-full bg-muted" />
-                              )}
-                              <span className="text-muted-foreground">
-                                {m.full_name}
-                                {m.user_id === currentUserId && " (you)"}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Approve/reject buttons (only for users who haven't voted) */}
-                      {closeRequest.request.status === "pending" &&
-                        !closeRequest.approvals.find((a) => a.user_id === currentUserId) && (
-                          <div className="flex gap-2 pt-1">
-                            <Button
-                              size="sm"
-                              className="flex-1"
-                              onClick={async () => {
-                                const result = await approveCycleClose(closeRequest.request!.id, true);
-                                if (result.error) {
-                                  const { toast } = await import("sonner");
-                                  toast.error(result.error);
-                                } else {
-                                  window.location.reload();
-                                }
-                              }}
-                            >
-                              Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              className="flex-1"
-                              onClick={async () => {
-                                const result = await approveCycleClose(closeRequest.request!.id, false);
-                                if (result.error) {
-                                  const { toast } = await import("sonner");
-                                  toast.error(result.error);
-                                } else {
-                                  window.location.reload();
-                                }
-                              }}
-                            >
-                              Reject
-                            </Button>
-                          </div>
-                        )}
-
-                      {closeRequest.request.status === "approved" && (
-                        <p className="text-xs text-green-600 pt-1">All members approved. Cycle closed.</p>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          )}
-
           {/* Expenses list */}
           {expenses.length > 0 && (
             <Card className="mt-4 border-border shadow-sm">
@@ -622,6 +501,127 @@ export function HouseholdOverview({
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Settlements button */}
+      {currentCycle && expenses.length > 0 && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full gap-1.5 mt-4"
+          onClick={() => setShowSettlements(true)}
+        >
+          View settlements
+        </Button>
+      )}
+
+      {/* Close cycle voting */}
+      {currentCycle && expenses.length > 0 && (
+        <div className="mt-3">
+          {!closeRequest.request ? (
+            /* No pending request: show "Request close" button */
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-1.5"
+              disabled={closing}
+              onClick={async () => {
+                setClosing(true);
+                const result = await requestCycleClose(currentCycle.id);
+                setClosing(false);
+                if (result.error) {
+                  const { toast } = await import("sonner");
+                  toast.error(result.error);
+                } else {
+                  window.location.reload();
+                }
+              }}
+            >
+              {closing ? "Requesting..." : "Request cycle close"}
+            </Button>
+          ) : (
+            /* Pending request: show voting status */
+            <Card className="border-border shadow-sm">
+              <CardContent className="pt-4">
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-foreground">Close cycle request</span>
+                    <Badge variant={closeRequest.request.status === "approved" ? "default" : "secondary"}>
+                      {closeRequest.request.status === "approved" ? "Approved" : "Pending votes"}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Requested by {members.find((m) => m.user_id === closeRequest.request!.requested_by)?.full_name ?? "Unknown"}
+                  </p>
+
+                  {/* Approval progress */}
+                  <div className="flex flex-col gap-1.5">
+                    {members.map((m) => {
+                      const approval = closeRequest.approvals.find((a) => a.user_id === m.user_id);
+                      return (
+                        <div key={m.user_id} className="flex items-center gap-2 text-xs">
+                          {approval?.approved ? (
+                            <span className="h-2 w-2 rounded-full bg-green-500" />
+                          ) : approval ? (
+                            <span className="h-2 w-2 rounded-full bg-red-500" />
+                          ) : (
+                            <span className="h-2 w-2 rounded-full bg-muted" />
+                          )}
+                          <span className="text-muted-foreground">
+                            {m.full_name}
+                            {m.user_id === currentUserId && " (you)"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Approve/reject buttons (only for users who haven't voted) */}
+                  {closeRequest.request.status === "pending" &&
+                    !closeRequest.approvals.find((a) => a.user_id === currentUserId) && (
+                      <div className="flex gap-2 pt-1">
+                        <Button
+                          size="sm"
+                          className="flex-1"
+                          onClick={async () => {
+                            const result = await approveCycleClose(closeRequest.request!.id, true);
+                            if (result.error) {
+                              const { toast } = await import("sonner");
+                              toast.error(result.error);
+                            } else {
+                              window.location.reload();
+                            }
+                          }}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="flex-1"
+                          onClick={async () => {
+                            const result = await approveCycleClose(closeRequest.request!.id, false);
+                            if (result.error) {
+                              const { toast } = await import("sonner");
+                              toast.error(result.error);
+                            } else {
+                              window.location.reload();
+                            }
+                          }}
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    )}
+
+                  {closeRequest.request.status === "approved" && (
+                    <p className="text-xs text-green-600 pt-1">All members approved. Cycle closed.</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       )}
 
       {/* Archive button (owner only) */}
