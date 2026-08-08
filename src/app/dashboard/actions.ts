@@ -1095,7 +1095,7 @@ export async function deleteExpense(expenseId: string): Promise<{ error: string 
   // Check cycle is open and user owns the expense
   const { data: expense } = await supabase
     .from("expenses")
-    .select("paid_by, billing_cycles!inner(status)")
+    .select("paid_by, household_id, billing_cycles!inner(status)")
     .eq("id", expenseId)
     .single();
 
@@ -1106,12 +1106,22 @@ export async function deleteExpense(expenseId: string): Promise<{ error: string 
     return { error: "Cannot delete expenses in a closed cycle" };
   }
 
-  // Check ownership - only the payer can delete
+  // Only the payer or the household owner can delete
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
   if (expense.paid_by !== user.id) {
-    return { error: "You can only delete your own expenses" };
+    const { data: membership } = await supabase
+      .from("household_members")
+      .select("role")
+      .eq("household_id", expense.household_id)
+      .eq("user_id", user.id)
+      .is("left_at", null)
+      .single();
+
+    if (membership?.role !== "owner") {
+      return { error: "Only the payer or household owner can delete this expense" };
+    }
   }
 
   // Delete shares first, then expense
@@ -1152,12 +1162,22 @@ export async function updateExpense(
     return { error: "Cannot edit expenses in a closed cycle" };
   }
 
-  // Check ownership - only the payer can edit
+  // Only the payer or the household owner can edit
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
   if (current.paid_by !== user.id) {
-    return { error: "You can only edit your own expenses" };
+    const { data: membership } = await supabase
+      .from("household_members")
+      .select("role")
+      .eq("household_id", current.household_id)
+      .eq("user_id", user.id)
+      .is("left_at", null)
+      .single();
+
+    if (membership?.role !== "owner") {
+      return { error: "Only the payer or household owner can edit this expense" };
+    }
   }
 
   const { error } = await supabase.from("expenses").update(data).eq("id", expenseId);

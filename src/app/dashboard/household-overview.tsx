@@ -301,7 +301,7 @@ export function HouseholdOverview({
                                   : `${household.currency} ${yourShare.toLocaleString(undefined, { minimumFractionDigits: 2 })} your share`}
                               </span>
                             </div>
-                          {expense.paid_by === currentUserId && (
+                          {(expense.paid_by === currentUserId || role === "owner") && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
