@@ -1,0 +1,13 @@
+-- migration 15_update_join_rpc.sql used CREATE OR REPLACE FUNCTION with a
+-- new signature (added p_pays_for), which creates a new overload in
+-- Postgres rather than replacing the original - CREATE OR REPLACE only
+-- replaces a function with the exact same argument types. This left two
+-- overloads of join_household_by_code coexisting:
+--   join_household_by_code(text)
+--   join_household_by_code(text, uuid[] default null)
+-- Calling supabase.rpc('join_household_by_code', { p_code }) with only
+-- p_code is ambiguous between them (the second overload's default makes
+-- it also match a single-argument call), so PostgREST/Postgres rejects
+-- the call - which the app's generic error handling was masking as
+-- "Invalid or expired invite code" regardless of the real cause.
+drop function if exists join_household_by_code(text);

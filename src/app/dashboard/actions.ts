@@ -116,7 +116,12 @@ export async function joinHousehold(
     p_code: code,
   });
 
-  if (error) return { error: "Invalid or expired invite code.", values };
+  if (error) {
+    // The RPC raises "Invalid or expired invite code" itself for a bad
+    // code; surface the real message rather than a hardcoded generic one
+    // so other failures (e.g. schema/permission errors) aren't masked.
+    return { error: error.message, values };
+  }
 
   revalidatePath("/dashboard");
   return { error: null };
@@ -785,7 +790,7 @@ export type ExpenseShare = {
 
 export type ExpenseActionState = {
   error: string | null;
-  values?: { type?: string; amount?: string; description?: string; paidBy?: string; customShares?: string };
+  values?: { type?: string; amount?: string; description?: string; paidBy?: string; customShares?: string; items?: string };
 };
 
 export async function addExpense(
@@ -798,7 +803,28 @@ export async function addExpense(
   const paidBy = formData.get("paidBy") as string;
   const customSharesRaw = formData.get("customShares") as string;
   const cycleId = formData.get("cycleId") as string;
-  const values = { type, amount: amountRaw, description: description ?? undefined, paidBy, customShares: customSharesRaw };
+  const itemsRaw = (formData.get("items") as string) || "";
+  const values = {
+    type,
+    amount: amountRaw,
+    description: description ?? undefined,
+    paidBy,
+    customShares: customSharesRaw,
+    items: itemsRaw,
+  };
+
+  // Named items (e.g. "Milk", "Rice") are optional - each needs a name and a
+  // positive cost. Skip incomplete rows (still-typing) rather than failing.
+  let items: { name: string; cost: number }[] | null = null;
+  if (itemsRaw) {
+    try {
+      const parsed = JSON.parse(itemsRaw) as { name: string; cost: number }[];
+      items = parsed.filter((i) => i.name?.trim() && i.cost > 0);
+      if (items.length === 0) items = null;
+    } catch {
+      items = null;
+    }
+  }
 
   const amount = parseFloat(amountRaw);
   if (!type || isNaN(amount) || amount <= 0) {
@@ -835,7 +861,8 @@ export async function addExpense(
       type,
       amount,
       paid_by: paidBy,
-      description,
+      description: description ?? (items ? items.map((i) => i.name).join(", ") : null),
+      metadata: items,
     })
     .select()
     .single();
@@ -975,7 +1002,13 @@ export async function deleteExpense(expenseId: string): Promise<{ error: string 
 
 export async function updateExpense(
   expenseId: string,
-  data: { type?: string; amount?: number; paid_by?: string; description?: string | null },
+  data: {
+    type?: string;
+    amount?: number;
+    paid_by?: string;
+    description?: string | null;
+    metadata?: { name: string; cost: number }[] | null;
+  },
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
 

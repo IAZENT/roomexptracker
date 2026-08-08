@@ -628,6 +628,7 @@ export function HouseholdOverview({
           initialAmount={editingExpense.amount}
           initialPaidBy={editingExpense.paid_by}
           initialDescription={editingExpense.description ?? ""}
+          initialMetadata={editingExpense.metadata ?? null}
           members={members}
           currency={household.currency}
           customTypes={customTypes}
