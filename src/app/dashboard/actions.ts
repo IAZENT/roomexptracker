@@ -180,6 +180,32 @@ export async function updatePaysFor(
 
   if (error) return { error: error.message };
 
+  // Coverage must be one-directional. If A now covers B, B can't also
+  // cover A - that produces a meaningless swap where both parties still
+  // end up owing their own share, silently undoing the whole point of
+  // setting coverage. Break the cycle by resetting anyone A now covers
+  // back to self-only if they were covering A.
+  if (paysFor && paysFor.length > 1) {
+    const coveredIds = paysFor.filter((id) => id !== userId);
+    if (coveredIds.length > 0) {
+      const { data: coveredMembers } = await supabase
+        .from("household_members")
+        .select("user_id, pays_for")
+        .eq("household_id", householdId)
+        .in("user_id", coveredIds);
+
+      for (const m of coveredMembers ?? []) {
+        if (m.pays_for && m.pays_for.includes(userId)) {
+          await supabase
+            .from("household_members")
+            .update({ pays_for: [m.user_id] })
+            .eq("household_id", householdId)
+            .eq("user_id", m.user_id);
+        }
+      }
+    }
+  }
+
   revalidatePath("/dashboard");
   return { error: null };
 }
@@ -1905,6 +1931,13 @@ export type PersonalSummary = {
   recentExpenses: { id: string; type: string; amount: number; created_at: string }[];
   dailySpending: { date: string; paid: number; owed: number }[];
   topPayerBreakdown: { name: string; amount: number }[];
+  // Your coverage-adjusted share of this cycle's fixed bills (rent, water...).
+  fixedBillsShare: number;
+  // totalOwed + fixedBillsShare - everything you're on the hook for this cycle.
+  totalResponsibility: number;
+  // totalResponsibility - totalPaid. Positive = you still need to pay this
+  // much; negative = you've paid more than your share and are owed back.
+  remainingToPay: number;
 };
 
 export async function getPersonalSummary(
@@ -1923,6 +1956,9 @@ export async function getPersonalSummary(
     recentExpenses: [],
     dailySpending: [],
     topPayerBreakdown: [],
+    fixedBillsShare: 0,
+    totalResponsibility: 0,
+    remainingToPay: 0,
   };
 
   // Get expenses paid by this user
@@ -2004,6 +2040,37 @@ export async function getPersonalSummary(
   summary.dailySpending = Object.entries(dailyMap)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, v]) => ({ date, ...v }));
+
+  // Your share of this cycle's fixed bills (rent, water...), using the same
+  // equal-split + pays_for coverage logic as variable expenses, so it's
+  // consistent rather than a separately-tuned formula.
+  if (cycleId) {
+    const { data: allMembers } = await supabase
+      .from("household_members")
+      .select("user_id, pays_for")
+      .eq("household_id", householdId)
+      .is("left_at", null);
+
+    const { data: bills } = await supabase
+      .from("fixed_bills")
+      .select("type, amount")
+      .eq("household_id", householdId)
+      .order("effective_from", { ascending: false });
+
+    const seenBills = new Map<string, number>();
+    for (const b of bills ?? []) {
+      if (!seenBills.has(b.type)) seenBills.set(b.type, b.amount);
+    }
+    const fixedBillsTotal = [...seenBills.values()].reduce((sum, a) => sum + a, 0);
+
+    if (fixedBillsTotal > 0 && allMembers && allMembers.length > 0) {
+      const fixedShares = splitByCoverage(fixedBillsTotal, allMembers);
+      summary.fixedBillsShare = fixedShares.find((s) => s.user_id === userId)?.share_amount ?? 0;
+    }
+  }
+
+  summary.totalResponsibility = summary.totalOwed + summary.fixedBillsShare;
+  summary.remainingToPay = summary.totalResponsibility - summary.totalPaid;
 
   return summary;
 }

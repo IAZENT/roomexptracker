@@ -60,6 +60,9 @@ export default async function DashboardPage() {
     recentExpenses: [],
     dailySpending: [],
     topPayerBreakdown: [],
+    fixedBillsShare: 0,
+    totalResponsibility: 0,
+    remainingToPay: 0,
   };
   let customTypes: Awaited<ReturnType<typeof getCustomExpenseTypes>> = [];
   let expenseShares: Awaited<ReturnType<typeof getExpenseSharesForCycle>> = {};

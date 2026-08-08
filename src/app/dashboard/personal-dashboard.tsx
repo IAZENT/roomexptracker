@@ -72,7 +72,6 @@ export function PersonalDashboard({
   currentUserId: string;
 }) {
   const userName = members.find((m) => m.user_id === currentUserId)?.full_name ?? "You";
-  const balance = summary.totalPaid - summary.totalOwed;
 
   const [activeTab, setActiveTab] = useState<ChartTab>("overview");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -129,31 +128,46 @@ export function PersonalDashboard({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Greeting + balance */}
+      {/* Greeting + this-cycle math: what you paid, what you'll owe in
+          total (variable expenses + fixed bills), and what's left. */}
       <Card className="border-border shadow-sm">
         <CardContent className="pt-4">
           <p className="text-sm text-muted-foreground">Welcome back,</p>
           <p className="text-xl font-semibold text-foreground">{userName}</p>
-          <div className="mt-3 flex items-center gap-3">
-            <div className="flex-1 rounded-lg bg-secondary/50 px-3 py-2">
-              <p className="text-xs text-muted-foreground">You paid</p>
-              <p className="text-sm font-semibold text-foreground">
+
+          <div className="mt-3 flex flex-col gap-1.5 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">You&apos;ve paid</span>
+              <span className="font-medium text-foreground">
                 {currency} {summary.totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-              </p>
+              </span>
             </div>
-            <div className="flex-1 rounded-lg bg-secondary/50 px-3 py-2">
-              <p className="text-xs text-muted-foreground">You owe</p>
-              <p className="text-sm font-semibold text-foreground">
-                {currency} {summary.totalOwed.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-              </p>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">
+                Your total this cycle
+                {summary.fixedBillsShare > 0 && (
+                  <span className="text-xs"> (incl. fixed bills)</span>
+                )}
+              </span>
+              <span className="font-medium text-foreground">
+                {currency} {summary.totalResponsibility.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </span>
             </div>
           </div>
-          <div className="mt-2 rounded-lg bg-secondary/50 px-3 py-2">
-            <p className="text-xs text-muted-foreground">Balance</p>
-            <p className={`text-sm font-semibold ${balance >= 0 ? "text-green-700" : "text-destructive"}`}>
-              {balance >= 0 ? "+" : ""}{currency} {balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-              {balance >= 0 ? " (others owe you)" : " (you owe more)"}
+
+          <div className="mt-3 rounded-lg bg-secondary px-3 py-2.5">
+            <p className="text-xs text-muted-foreground">
+              {summary.remainingToPay > 0.01
+                ? "Remaining to pay"
+                : summary.remainingToPay < -0.01
+                  ? "You've overpaid by"
+                  : "You're settled up"}
             </p>
+            {Math.abs(summary.remainingToPay) > 0.01 && (
+              <p className={`text-lg font-semibold ${summary.remainingToPay > 0 ? "text-destructive" : "text-green-700"}`}>
+                {currency} {Math.abs(summary.remainingToPay).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
