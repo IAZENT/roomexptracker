@@ -241,7 +241,13 @@ export function ShoppingMode({
     refreshItems();
   };
 
-  const handleRemoveItem = (localId: string) => {
+  const handleRemoveItem = async (localId: string) => {
+    const item = items.find((i) => i.localId === localId);
+    // Delete from server if synced
+    if (item?.serverId) {
+      const { deleteShoppingItem } = await import("./actions");
+      await deleteShoppingItem(item.serverId);
+    }
     removeLocalItem(localId);
     refreshItems();
   };
