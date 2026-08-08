@@ -2013,18 +2013,26 @@ export async function getPersonalSummary(
 
   // Daily aggregation
   const dailyMap: Record<string, { paid: number; owed: number }> = {};
-  // totalPaid tracks real personal spending (everything you physically
-  // paid for, including settled-on-the-spot purchases like gas). But a
-  // settled purchase was already fully reimbursed in cash, so it must NOT
-  // reduce remainingToPay - paidTowardBalance tracks that separately.
+  // totalPaid tracks real personal spending. For a normal expense that's
+  // simply what you (paid_by) fronted. But a settled expense (e.g. gas)
+  // wasn't fronted by one person - everyone paid their own cut on the
+  // spot - so crediting the whole amount to whoever happened to type it
+  // into the app would be wrong. Settled amounts get credited via each
+  // person's own expense_shares row instead (same equal-split + pays_for
+  // coverage redirect already used for the owed calculation - e.g. Shyam
+  // covering jitendra means Shyam's share already includes both).
+  // paidTowardBalance stays non-settled-only either way, since settled
+  // money was already reimbursed in cash and shouldn't reduce what's owed.
   let paidTowardBalance = 0;
 
   if (paidExpenses) {
     summary.expenseCount = paidExpenses.length;
     summary.recentExpenses = paidExpenses.slice(0, 5);
     for (const e of paidExpenses) {
-      summary.totalPaid += e.amount;
-      if (!e.settled) paidTowardBalance += e.amount;
+      if (!e.settled) {
+        summary.totalPaid += e.amount;
+        paidTowardBalance += e.amount;
+      }
       summary.byType[e.type] = (summary.byType[e.type] ?? 0) + e.amount;
       const day = e.created_at.slice(0, 10);
       if (!dailyMap[day]) dailyMap[day] = { paid: 0, owed: 0 };
@@ -2038,11 +2046,16 @@ export async function getPersonalSummary(
     for (const s of shares) {
       const exp = s.expense as unknown as { id: string; cycle_id: string; type: string; paid_by: string; created_at: string; settled: boolean } | null;
       if (!exp) continue;
-      // Settled on the spot (e.g. gas) - no debt to track for it.
-      if (exp.settled) continue;
 
       const matchesCycle = !cycleId || exp.cycle_id === cycleId;
       if (!matchesCycle) continue;
+
+      if (exp.settled) {
+        // Your split of a settled expense counts as money you personally
+        // paid (your own cut, or a covered member's cut if you cover them).
+        summary.totalPaid += s.share_amount;
+        continue;
+      }
 
       // Totals
       summary.totalOwed += s.share_amount;
