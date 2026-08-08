@@ -1534,33 +1534,45 @@ export async function getExpenseSummary(
     for (const e of expenses) {
       summary.totalByType[e.type] = (summary.totalByType[e.type] ?? 0) + e.amount;
 
-      const payerPaysFor = paysForByUser.get(e.paid_by);
-      const creditIds =
-        payerPaysFor && payerPaysFor.length > 1
-          ? payerPaysFor.filter((id) => activePayerIds.has(id))
-          : [e.paid_by];
-      const perCredit = e.amount / (creditIds.length || 1);
-      for (const id of creditIds.length > 0 ? creditIds : [e.paid_by]) {
-        summary.totalByPayer[id] = (summary.totalByPayer[id] ?? 0) + perCredit;
+      // Settled expenses (e.g. gas) have no single fronting payer - everyone
+      // paid their own cut on the spot - so "who paid" credit comes from
+      // the actual expense_shares split below instead of the payer's
+      // standing coverage list.
+      if (!e.settled) {
+        const payerPaysFor = paysForByUser.get(e.paid_by);
+        const creditIds =
+          payerPaysFor && payerPaysFor.length > 1
+            ? payerPaysFor.filter((id) => activePayerIds.has(id))
+            : [e.paid_by];
+        const perCredit = e.amount / (creditIds.length || 1);
+        for (const id of creditIds.length > 0 ? creditIds : [e.paid_by]) {
+          summary.totalByPayer[id] = (summary.totalByPayer[id] ?? 0) + perCredit;
+        }
       }
 
       summary.grandTotal += e.amount;
       summary.variableTotal += e.amount;
     }
 
-    // Get shares for per-member breakdown - excludes settled-on-the-spot
-    // expenses (e.g. gas), since there's no outstanding debt for those.
-    const expenseIds = expenses.filter((e) => !e.settled).map((e) => e.id);
-    if (expenseIds.length > 0) {
+    // Get shares for all expenses in one query - used for the "per person
+    // owed" chart (non-settled only) and for "who paid" credit on settled
+    // expenses (each person's share is what they personally paid on the
+    // spot, or a covered member's share if you cover them).
+    const settledExpenseIds = new Set(expenses.filter((e) => e.settled).map((e) => e.id));
+    const allExpenseIds = expenses.map((e) => e.id);
+    if (allExpenseIds.length > 0) {
       const { data: shares } = await supabase
         .from("expense_shares")
-        .select("user_id, share_amount")
-        .in("expense_id", expenseIds);
+        .select("expense_id, user_id, share_amount")
+        .in("expense_id", allExpenseIds);
 
       if (shares) {
         for (const s of shares) {
-          summary.totalByMember[s.user_id] =
-            (summary.totalByMember[s.user_id] ?? 0) + s.share_amount;
+          if (settledExpenseIds.has(s.expense_id)) {
+            summary.totalByPayer[s.user_id] = (summary.totalByPayer[s.user_id] ?? 0) + s.share_amount;
+          } else {
+            summary.totalByMember[s.user_id] = (summary.totalByMember[s.user_id] ?? 0) + s.share_amount;
+          }
         }
       }
     }
@@ -2029,10 +2041,13 @@ export async function getPersonalSummary(
     summary.expenseCount = paidExpenses.length;
     summary.recentExpenses = paidExpenses.slice(0, 5);
     for (const e of paidExpenses) {
-      if (!e.settled) {
-        summary.totalPaid += e.amount;
-        paidTowardBalance += e.amount;
-      }
+      // Settled expenses are credited via each participant's own share
+      // below instead (a settled purchase has no single fronting payer),
+      // so skip them here entirely - including from the charts, which
+      // were still showing the full amount against whoever typed it in.
+      if (e.settled) continue;
+      summary.totalPaid += e.amount;
+      paidTowardBalance += e.amount;
       summary.byType[e.type] = (summary.byType[e.type] ?? 0) + e.amount;
       const day = e.created_at.slice(0, 10);
       if (!dailyMap[day]) dailyMap[day] = { paid: 0, owed: 0 };
@@ -2052,8 +2067,13 @@ export async function getPersonalSummary(
 
       if (exp.settled) {
         // Your split of a settled expense counts as money you personally
-        // paid (your own cut, or a covered member's cut if you cover them).
+        // paid (your own cut, or a covered member's cut if you cover them)
+        // - reflected in the charts too, not just the headline number.
         summary.totalPaid += s.share_amount;
+        summary.byType[exp.type] = (summary.byType[exp.type] ?? 0) + s.share_amount;
+        const settledDay = exp.created_at.slice(0, 10);
+        if (!dailyMap[settledDay]) dailyMap[settledDay] = { paid: 0, owed: 0 };
+        dailyMap[settledDay].paid += s.share_amount;
         continue;
       }
 
