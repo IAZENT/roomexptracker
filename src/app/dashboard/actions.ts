@@ -1977,7 +1977,7 @@ export async function getPersonalSummary(
   // Get expenses paid by this user
   let paidQuery = supabase
     .from("expenses")
-    .select("id, type, amount, created_at")
+    .select("id, type, amount, created_at, settled")
     .eq("household_id", householdId)
     .eq("paid_by", userId);
 
@@ -2015,7 +2015,10 @@ export async function getPersonalSummary(
     summary.expenseCount = paidExpenses.length;
     summary.recentExpenses = paidExpenses.slice(0, 5);
     for (const e of paidExpenses) {
-      summary.totalPaid += e.amount;
+      // Settled on the spot (e.g. gas) - everyone already reimbursed you in
+      // cash, so it shouldn't count toward totalPaid/remainingToPay math.
+      // Still shown in spending charts (byType, daily) for awareness.
+      if (!e.settled) summary.totalPaid += e.amount;
       summary.byType[e.type] = (summary.byType[e.type] ?? 0) + e.amount;
       const day = e.created_at.slice(0, 10);
       if (!dailyMap[day]) dailyMap[day] = { paid: 0, owed: 0 };
