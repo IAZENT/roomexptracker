@@ -980,29 +980,36 @@ export type CycleHistory = {
 export async function getCycleHistory(householdId: string): Promise<CycleHistory[]> {
   const supabase = await createClient();
 
+  // Single query: get all cycles with their expense totals
   const { data: cycles } = await supabase
     .from("billing_cycles")
-    .select("*")
+    .select("id, cycle_start, cycle_end, status, member_count_snapshot")
     .eq("household_id", householdId)
     .order("cycle_start", { ascending: true });
 
   if (!cycles) return [];
 
-  const history: CycleHistory[] = [];
+  // Single query: get all expenses for this household
+  const { data: allExpenses } = await supabase
+    .from("expenses")
+    .select("cycle_id, type, amount")
+    .eq("household_id", householdId);
 
-  for (const cycle of cycles) {
-    const { data: expenses } = await supabase
-      .from("expenses")
-      .select("type, amount")
-      .eq("cycle_id", cycle.id);
+  // Group expenses by cycle
+  const expensesByCycle: Record<string, { type: string; amount: number }[]> = {};
+  for (const e of allExpenses ?? []) {
+    if (!expensesByCycle[e.cycle_id]) expensesByCycle[e.cycle_id] = [];
+    expensesByCycle[e.cycle_id].push(e);
+  }
 
-    const total = (expenses ?? []).reduce((sum, e) => sum + e.amount, 0);
+  return cycles.map((cycle) => {
+    const expenses = expensesByCycle[cycle.id] ?? [];
+    const total = expenses.reduce((sum, e) => sum + e.amount, 0);
     const byType: Record<string, number> = {};
-    for (const e of expenses ?? []) {
+    for (const e of expenses) {
       byType[e.type] = (byType[e.type] ?? 0) + e.amount;
     }
-
-    history.push({
+    return {
       id: cycle.id,
       cycle_start: cycle.cycle_start,
       cycle_end: cycle.cycle_end,
@@ -1010,10 +1017,8 @@ export async function getCycleHistory(householdId: string): Promise<CycleHistory
       total,
       byType,
       memberCount: cycle.member_count_snapshot ?? 0,
-    });
-  }
-
-  return history;
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1381,47 +1386,42 @@ export async function getPersonalSummary(
     }
   }
 
-  // Get this user's shares
+  // Single query for all share data
   const shareQuery = supabase
     .from("expense_shares")
-    .select("share_amount, expense:expenses(id, cycle_id, type)")
+    .select("share_amount, expense:expenses(id, cycle_id, type, paid_by, created_at)")
     .eq("user_id", userId);
 
   const { data: shares } = await shareQuery;
 
   if (shares) {
+    const payerMap: Record<string, number> = {};
+
     for (const s of shares) {
-      const exp = s.expense as unknown as { id: string; cycle_id: string; type: string } | null;
-      if (!cycleId || exp?.cycle_id === cycleId) {
-        summary.totalOwed += s.share_amount;
-        if (exp?.type) {
-          summary.byTypeOwed[exp.type] = (summary.byTypeOwed[exp.type] ?? 0) + s.share_amount;
-        }
+      const exp = s.expense as unknown as { id: string; cycle_id: string; type: string; paid_by: string; created_at: string } | null;
+      if (!exp) continue;
+
+      const matchesCycle = !cycleId || exp.cycle_id === cycleId;
+      if (!matchesCycle) continue;
+
+      // Totals
+      summary.totalOwed += s.share_amount;
+      if (exp.type) {
+        summary.byTypeOwed[exp.type] = (summary.byTypeOwed[exp.type] ?? 0) + s.share_amount;
+      }
+
+      // Daily owed
+      const day = exp.created_at.slice(0, 10);
+      if (!dailyMap[day]) dailyMap[day] = { paid: 0, owed: 0 };
+      dailyMap[day].owed += s.share_amount;
+
+      // Payer breakdown (skip self)
+      if (exp.paid_by !== userId) {
+        payerMap[exp.paid_by] = (payerMap[exp.paid_by] ?? 0) + s.share_amount;
       }
     }
-  }
 
-  // Get paid-by-others breakdown (who paid for expenses this user owes)
-  let shareDetailQuery = supabase
-    .from("expense_shares")
-    .select("share_amount, expense:expenses(paid_by, cycle_id)")
-    .eq("user_id", userId);
-
-  if (cycleId) shareDetailQuery = shareDetailQuery.eq("expense.cycle_id", cycleId);
-
-  const { data: shareDetails } = await shareDetailQuery;
-
-  if (shareDetails) {
-    const payerMap: Record<string, number> = {};
-    for (const s of shareDetails) {
-      const exp = s.expense as unknown as { paid_by: string; cycle_id: string } | null;
-      if (!exp) continue;
-      // Skip expenses this user paid themselves
-      if (exp.paid_by === userId) continue;
-      payerMap[exp.paid_by] = (payerMap[exp.paid_by] ?? 0) + s.share_amount;
-    }
-
-    // Resolve names
+    // Resolve payer names
     const payerIds = Object.keys(payerMap);
     if (payerIds.length > 0) {
       const { data: profiles } = await supabase
@@ -1432,26 +1432,6 @@ export async function getPersonalSummary(
       summary.topPayerBreakdown = Object.entries(payerMap)
         .map(([id, amount]) => ({ name: nameMap.get(id) ?? "Unknown", amount }))
         .sort((a, b) => b.amount - a.amount);
-    }
-  }
-
-  // Get owed daily breakdown from expense_shares joined with expenses
-  let owedDailyQuery = supabase
-    .from("expense_shares")
-    .select("share_amount, expense:expenses(created_at, cycle_id)")
-    .eq("user_id", userId);
-
-  if (cycleId) owedDailyQuery = owedDailyQuery.eq("expense.cycle_id", cycleId);
-
-  const { data: owedDaily } = await owedDailyQuery;
-
-  if (owedDaily) {
-    for (const s of owedDaily) {
-      const exp = s.expense as unknown as { created_at: string; cycle_id: string } | null;
-      if (!exp) continue;
-      const day = exp.created_at.slice(0, 10);
-      if (!dailyMap[day]) dailyMap[day] = { paid: 0, owed: 0 };
-      dailyMap[day].owed += s.share_amount;
     }
   }
 

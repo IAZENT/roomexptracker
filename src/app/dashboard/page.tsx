@@ -70,7 +70,7 @@ export default async function DashboardPage() {
     const hid = active.household.id;
 
     // Fetch all data in parallel for faster page load
-    [bills, currentCycle, cycles, cycleHistory, timeline, summary, personalSummary, customTypes] = await Promise.all([
+    [bills, currentCycle, cycles, cycleHistory, timeline, summary, personalSummary, customTypes, members] = await Promise.all([
       getFixedBills(hid),
       ensureCurrentCycle(hid, active.household.cycle_end_day),
       getCycles(hid),
@@ -79,6 +79,7 @@ export default async function DashboardPage() {
       getExpenseSummary(hid, null),
       getPersonalSummary(hid, null, user.id),
       getCustomExpenseTypes(hid),
+      getActiveMembers(hid),
     ]);
 
     if (currentCycle) {
@@ -91,11 +92,15 @@ export default async function DashboardPage() {
       ]);
     }
 
-    members = await getActiveMembers(hid);
-
-    // Fetch receipts for closed cycles
-    for (const cycle of cycles.filter((c) => c.status === "closed")) {
-      closedCycleReceipts[cycle.id] = await getReceiptsForCycle(cycle.id);
+    // Fetch receipts for closed cycles in parallel
+    const closedCycles = cycles.filter((c) => c.status === "closed");
+    if (closedCycles.length > 0) {
+      const receiptResults = await Promise.all(
+        closedCycles.map((c) => getReceiptsForCycle(c.id)),
+      );
+      closedCycles.forEach((c, i) => {
+        closedCycleReceipts[c.id] = receiptResults[i];
+      });
     }
   }
 
