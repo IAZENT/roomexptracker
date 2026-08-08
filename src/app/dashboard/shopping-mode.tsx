@@ -158,13 +158,12 @@ export function ShoppingMode({
     syncingRef.current = false;
     // Reload from server to get fresh data
     await loadServerItems();
-    // Auto-show convert dialog after successful sync
-    if (result.synced > 0 && cycleId) {
+    // Show toast but don't auto-open dialog
+    if (result.synced > 0) {
       const { toast } = await import("sonner");
       toast.success(`Synced ${result.synced} item${result.synced !== 1 ? "s" : ""}`, {
-        description: "Convert them to an expense to see on your dashboard.",
+        description: "Items are saved. Convert to expense when ready.",
       });
-      setShowConvert(true);
     }
   }, [householdId, refreshItems, cycleId, loadServerItems]);
 
@@ -172,9 +171,40 @@ export function ShoppingMode({
   useEffect(() => {
     const goOnline = () => {
       setIsOnline(true);
+      // Auto-sync silently in background, don't open dialog
       const unsynced = getUnsyncedItems().filter((i) => i.householdId === householdId);
-      if (unsynced.length > 0) {
-        handleSync();
+      if (unsynced.length > 0 && !syncingRef.current) {
+        syncingRef.current = true;
+        setSyncing(true);
+        syncShoppingItems(
+          unsynced.map((i) => ({
+            localId: i.localId,
+            name: i.name,
+            cost: i.cost,
+            householdId: i.householdId,
+            cycleId: i.cycleId,
+            createdAt: i.createdAt,
+          })),
+        ).then(async (result) => {
+          const errorNames = new Set(result.errors.map((e) => e.split(":")[0].trim()));
+          for (const item of unsynced) {
+            if (!errorNames.has(item.name)) {
+              const serverId = result.idMap[item.localId];
+              markItemSynced(item.localId, serverId ?? item.localId);
+            }
+          }
+          // Don't clear items, just reload from server to merge
+          await loadServerItems();
+          setSyncing(false);
+          syncingRef.current = false;
+          if (result.synced > 0) {
+            const { toast } = await import("sonner");
+            toast.success(`Auto-synced ${result.synced} item${result.synced !== 1 ? "s" : ""}`);
+          }
+        }).catch(() => {
+          setSyncing(false);
+          syncingRef.current = false;
+        });
       }
     };
     const goOffline = () => setIsOnline(false);
@@ -184,7 +214,7 @@ export function ShoppingMode({
       window.removeEventListener("online", goOnline);
       window.removeEventListener("offline", goOffline);
     };
-  }, [householdId, handleSync]);
+  }, [householdId, loadServerItems]);
 
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
