@@ -1,4 +1,4 @@
--- Room Expense Tracker — initial schema
+-- Room Expense Tracker - initial schema
 -- See docs/ARCHITECTURE.md for the full data model rationale.
 
 create extension if not exists "pgcrypto";

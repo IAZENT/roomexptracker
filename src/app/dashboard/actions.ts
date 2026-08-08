@@ -5,14 +5,11 @@ import { createClient } from "@/lib/supabase/server";
 
 export type HouseholdActionState = {
   error: string | null;
-  // Echoed back so forms can restore them after an error — React resets
+  // Echoed back so forms can restore them after an error - React resets
   // uncontrolled <form action> fields after every submission (success or
   // failure) unless defaultValue is re-supplied.
   values?: { name?: string; cycleEndDay?: string; currency?: string; code?: string };
 };
-
-const initial: HouseholdActionState = { error: null };
-export { initial as initialHouseholdActionState };
 
 export async function createHousehold(
   _prevState: HouseholdActionState,

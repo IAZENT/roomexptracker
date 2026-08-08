@@ -8,7 +8,7 @@ export type AuthState = {
   error: string | null;
   message?: string;
   // Non-sensitive fields echoed back so forms can restore them after an
-  // error — React resets uncontrolled <form action> fields after every
+  // error - React resets uncontrolled <form action> fields after every
   // submission (success or failure) unless defaultValue is re-supplied.
   values?: { email?: string; fullName?: string; phone?: string };
 };

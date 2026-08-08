@@ -6,20 +6,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  createHousehold,
-  joinHousehold,
-  initialHouseholdActionState,
-} from "./actions";
+import { createHousehold, joinHousehold, type HouseholdActionState } from "./actions";
+
+const initialState: HouseholdActionState = { error: null };
 
 export function HouseholdSetup() {
   const [createState, createAction, creating] = useActionState(
     createHousehold,
-    initialHouseholdActionState,
+    initialState,
   );
   const [joinState, joinAction, joining] = useActionState(
     joinHousehold,
-    initialHouseholdActionState,
+    initialState,
   );
 
   return (

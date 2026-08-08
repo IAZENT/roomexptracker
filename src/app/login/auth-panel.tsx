@@ -8,7 +8,7 @@ export function AuthPanel() {
     >
       <Image
         src="/auth-panel.png"
-        alt="RoomMate — track rent and shared expenses, split fairly, and stay stress-free with your flatmates."
+        alt="RoomMate - track rent and shared expenses, split fairly, and stay stress-free with your flatmates."
         fill
         sizes="50vw"
         className="object-contain"

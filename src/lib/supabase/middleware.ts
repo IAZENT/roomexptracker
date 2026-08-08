@@ -25,7 +25,7 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  // Refreshes the session cookie if expired — required for server components to see auth state.
+  // Refreshes the session cookie if expired - required for server components to see auth state.
   await supabase.auth.getUser();
 
   return supabaseResponse;

@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import { signUp, type AuthState } from "@/app/login/actions";
 
 const initialState: AuthState = { error: null };
@@ -51,10 +52,9 @@ export function SignupForm() {
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="signup-password">Create password</Label>
-        <Input
+        <PasswordInput
           id="signup-password"
           name="password"
-          type="password"
           placeholder="Create a password"
           required
           minLength={6}
@@ -63,10 +63,9 @@ export function SignupForm() {
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="signup-confirm-password">Confirm password</Label>
-        <Input
+        <PasswordInput
           id="signup-confirm-password"
           name="confirmPassword"
-          type="password"
           placeholder="Confirm your password"
           required
           minLength={6}

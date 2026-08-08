@@ -46,7 +46,7 @@ export function HouseholdOverview({
           {role === "owner" ? (
             <div className="mt-2 rounded-xl bg-secondary px-4 py-3">
               <p className="text-xs text-muted-foreground">
-                Invite code — share with roommates so they can join
+                Invite code - share with roommates so they can join
               </p>
               <p className="mt-1 font-mono text-lg font-semibold tracking-[0.3em] text-primary">
                 {household.invite_code}

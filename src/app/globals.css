@@ -49,14 +49,14 @@
 }
 
 :root {
-  /* Warm off-white, not stark white — softer/premium feel. */
+  /* Warm off-white, not stark white - softer/premium feel. */
   --background: oklch(0.985 0.004 75);
   --foreground: oklch(0.2 0.006 60);
   --card: oklch(0.995 0.003 75);
   --card-foreground: oklch(0.2 0.006 60);
   --popover: oklch(0.995 0.003 75);
   --popover-foreground: oklch(0.2 0.006 60);
-  /* Single restrained accent — warm terracotta, used sparingly (primary actions only). */
+  /* Single restrained accent - warm terracotta, used sparingly (primary actions only). */
   --primary: oklch(0.58 0.13 40);
   --primary-foreground: oklch(0.985 0.004 75);
   --secondary: oklch(0.96 0.004 75);
