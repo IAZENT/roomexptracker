@@ -31,7 +31,9 @@ export function PaysForSettings({
   };
 
   const handleSave = async (userId: string) => {
-    const paysFor = selected.length > 0 ? selected : null;
+    // Always include self in pays_for
+    const withSelf = selected.includes(userId) ? selected : [...selected, userId];
+    const paysFor = withSelf.length > 0 ? withSelf : null;
     const result = await updatePaysFor(householdId, userId, paysFor);
     if (result.error) {
       toast.error(result.error);
@@ -41,7 +43,9 @@ export function PaysForSettings({
     }
   };
 
-  const toggleMember = (userId: string) => {
+  const toggleMember = (userId: string, selfId: string) => {
+    // Don't allow removing self
+    if (userId === selfId) return;
     setSelected((prev) =>
       prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId],
     );
@@ -75,10 +79,12 @@ export function PaysForSettings({
                       {members.map((other) => (
                         <button
                           key={other.user_id}
-                          onClick={() => toggleMember(other.user_id)}
+                          onClick={() => toggleMember(other.user_id, m.user_id)}
                           className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
                             selected.includes(other.user_id)
-                              ? "bg-primary text-primary-foreground"
+                              ? other.user_id === m.user_id
+                                ? "bg-primary/70 text-primary-foreground cursor-not-allowed"
+                                : "bg-primary text-primary-foreground"
                               : "bg-background text-foreground border border-border hover:bg-secondary"
                           }`}
                         >

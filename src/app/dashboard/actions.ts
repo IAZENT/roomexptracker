@@ -1063,16 +1063,16 @@ export async function getSettlements(cycleId: string): Promise<{ settlements: Se
 
   const householdId = expenses[0].household_id;
 
-  // Get all members
+  // Get all members with pays_for
   const { data: members } = await supabase
     .from("household_members")
-    .select("user_id, profiles(full_name)")
+    .select("user_id, profiles(full_name), pays_for")
     .eq("household_id", householdId)
     .is("left_at", null);
 
   if (!members) return { settlements: [], error: null };
 
-  // Get fixed bills for this cycle and split equally
+  // Get fixed bills for this cycle and split based on pays_for coverage
   const { data: fixedBills } = await supabase
     .from("fixed_bills")
     .select("type, amount")
@@ -1084,13 +1084,16 @@ export async function getSettlements(cycleId: string): Promise<{ settlements: Se
     balances[m.user_id] = 0;
   }
 
-  // Fixed bills are paid by the household (added to balance) and split equally (subtracted from each member)
-  // Since no one "paid" fixed bills through the app, we model it as: each member owes their share
+  // Fixed bills split based on pays_for coverage
   if (fixedBills && fixedBills.length > 0 && members.length > 0) {
     const totalFixed = fixedBills.reduce((sum, b) => sum + b.amount, 0);
-    const perPerson = totalFixed / members.length;
+    const totalCoverage = members.reduce((sum, m) => {
+      return sum + (m.pays_for && m.pays_for.length > 0 ? m.pays_for.length : 1);
+    }, 0);
     for (const m of members) {
-      balances[m.user_id] = (balances[m.user_id] ?? 0) - perPerson;
+      const coverage = m.pays_for && m.pays_for.length > 0 ? m.pays_for.length : 1;
+      const share = (coverage / totalCoverage) * totalFixed;
+      balances[m.user_id] = (balances[m.user_id] ?? 0) - share;
     }
   }
 
@@ -1204,10 +1207,10 @@ export async function getBalanceHistory(householdId: string): Promise<BalanceHis
 
   if (!cycles || cycles.length === 0) return [];
 
-  // Get members
+  // Get members with pays_for
   const { data: members } = await supabase
     .from("household_members")
-    .select("user_id, profiles(full_name)")
+    .select("user_id, profiles(full_name), pays_for")
     .eq("household_id", householdId)
     .is("left_at", null);
 
@@ -1229,21 +1232,25 @@ export async function getBalanceHistory(householdId: string): Promise<BalanceHis
 
   if (!allExpenses || !allShares) return [];
 
-  // Get fixed bills for this household (split equally across all members)
+  // Get fixed bills for this household (split based on pays_for coverage)
   const { data: fixedBills } = await supabase
     .from("fixed_bills")
     .select("amount")
     .eq("household_id", householdId);
 
   const totalFixed = fixedBills?.reduce((sum, b) => sum + b.amount, 0) ?? 0;
-  const perPersonFixed = members.length > 0 ? totalFixed / members.length : 0;
+  const totalCoverage = members.length > 0
+    ? members.reduce((sum, m) => sum + (m.pays_for && m.pays_for.length > 0 ? m.pays_for.length : 1), 0)
+    : 0;
 
   for (const cycle of cycles) {
     const expenses = allExpenses.filter((e) => e.cycle_id === cycle.id);
 
     const balances: Record<string, number> = {};
     for (const m of members) {
-      balances[m.user_id] = -perPersonFixed; // Each person owes their share of fixed bills
+      const coverage = m.pays_for && m.pays_for.length > 0 ? m.pays_for.length : 1;
+      const perPersonFixed = totalCoverage > 0 ? (coverage / totalCoverage) * totalFixed : 0;
+      balances[m.user_id] = -perPersonFixed;
     }
 
     for (const exp of expenses) {
