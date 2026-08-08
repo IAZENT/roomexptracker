@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ShoppingMode } from "../shopping-mode";
+import { ensureCurrentCycle } from "../actions";
 
 export default async function ShoppingPage() {
   const supabase = await createClient();
@@ -21,13 +22,8 @@ export default async function ShoppingPage() {
 
   const hh = membership.household as unknown as { id: string; cycle_end_day: number; currency: string };
 
-  // Get the current open cycle
-  const { data: cycle } = await supabase
-    .from("billing_cycles")
-    .select("id")
-    .eq("household_id", membership.household_id)
-    .eq("status", "open")
-    .single();
+  // Ensure an open cycle exists
+  const cycle = await ensureCurrentCycle(membership.household_id, hh.cycle_end_day);
 
   return (
     <ShoppingMode

@@ -112,6 +112,10 @@ export function ShoppingMode({
     syncingRef.current = false;
     // Auto-show convert dialog after successful sync
     if (result.synced > 0 && cycleId) {
+      const { toast } = await import("sonner");
+      toast.success(`Synced ${result.synced} item${result.synced !== 1 ? "s" : ""}`, {
+        description: "Convert them to an expense to see on your dashboard.",
+      });
       setShowConvert(true);
     }
   }, [householdId, refreshItems, cycleId]);
