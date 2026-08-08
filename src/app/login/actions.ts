@@ -21,9 +21,27 @@ export async function signIn(
   const password = formData.get("password") as string;
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) return { error: error.message, values: { email } };
+
+  // Ensure profile exists (backfill for users created before profiles table)
+  if (data.user) {
+    const { data: existing } = await supabase
+      .from("profiles")
+      .select("user_id")
+      .eq("user_id", data.user.id)
+      .single();
+
+    if (!existing) {
+      const fullName =
+        (data.user.user_metadata as Record<string, unknown>)?.full_name as string | undefined;
+      await supabase.from("profiles").upsert({
+        user_id: data.user.id,
+        full_name: fullName ?? email.split("@")[0],
+      });
+    }
+  }
 
   revalidatePath("/", "layout");
   redirect("/dashboard");
@@ -52,6 +70,14 @@ export async function signUp(
   });
 
   if (error) return { error: error.message, values };
+
+  // Store profile with name (separate from auth metadata)
+  if (data.user) {
+    await supabase.from("profiles").upsert({
+      user_id: data.user.id,
+      full_name: fullName,
+    });
+  }
 
   // If email confirmation is required, Supabase returns no session yet.
   if (!data.session) {
