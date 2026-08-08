@@ -318,12 +318,19 @@ async function generateReceipts(
 
   if (!members || members.length === 0) return;
 
-  // Get fixed bills effective for this cycle
+  // Get the cycle's start date to filter fixed bills
+  const { data: cycle } = await supabase
+    .from("billing_cycles")
+    .select("cycle_start")
+    .eq("id", cycleId)
+    .single();
+
+  // Get fixed bills effective for this cycle (effective_from <= cycle start)
   const { data: fixedBills } = await supabase
     .from("fixed_bills")
     .select("type, amount")
     .eq("household_id", householdId)
-    .lte("effective_from", cycleId) // This is a rough filter - in production would need proper date range
+    .lte("effective_from", cycle?.cycle_start ?? new Date().toISOString().split("T")[0])
     .order("effective_from", { ascending: false });
 
   // Deduplicate fixed bills (latest per type)
