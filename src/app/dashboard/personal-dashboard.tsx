@@ -647,9 +647,6 @@ export function PersonalDashboard({
                     </span>
                   </div>
                 </div>
-                {m.role === "owner" && (
-                  <span className="text-xs text-muted-foreground">Owner</span>
-                )}
               </div>
             ))}
           </div>
