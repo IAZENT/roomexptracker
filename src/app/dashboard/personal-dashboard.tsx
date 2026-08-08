@@ -16,7 +16,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Users } from "lucide-react";
 import { EXPENSE_TYPE_LABELS, CATEGORY_COLORS } from "@/lib/constants";
 import type { PersonalSummary, Member } from "./actions";
 
@@ -621,6 +621,40 @@ export function PersonalDashboard({
           </CardContent>
         </Card>
       )}
+
+      {/* Household members */}
+      <Card className="border-border shadow-sm">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            Household members
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-1.5">
+            {members.map((m) => (
+              <div key={m.user_id} className="flex items-center justify-between rounded-lg bg-secondary/50 px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
+                    {(m.full_name ?? "U").charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-foreground">
+                      {m.full_name ?? "Unknown"}
+                      {m.user_id === currentUserId && (
+                        <span className="ml-1.5 text-xs text-muted-foreground">(you)</span>
+                      )}
+                    </span>
+                  </div>
+                </div>
+                {m.role === "owner" && (
+                  <span className="text-xs text-muted-foreground">Owner</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Recent expenses */}
       {summary.recentExpenses.length > 0 && (

@@ -659,13 +659,14 @@ export async function getActiveCycle(householdId: string): Promise<BillingCycle 
 export type Member = {
   user_id: string;
   full_name: string | null;
+  role: string;
 };
 
 export async function getActiveMembers(householdId: string): Promise<Member[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("household_members")
-    .select("user_id")
+    .select("user_id, role")
     .eq("household_id", householdId)
     .is("left_at", null);
 
@@ -681,9 +682,14 @@ export async function getActiveMembers(householdId: string): Promise<Member[]> {
     (profiles ?? []).map((p) => [p.user_id, p.full_name]),
   );
 
+  const roleMap = new Map(
+    data.map((m) => [m.user_id, m.role]),
+  );
+
   return data.map((m) => ({
     user_id: m.user_id,
     full_name: profileMap.get(m.user_id) ?? "Unknown",
+    role: roleMap.get(m.user_id) ?? "member",
   }));
 }
 
