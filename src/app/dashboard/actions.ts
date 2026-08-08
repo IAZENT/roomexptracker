@@ -2013,15 +2013,18 @@ export async function getPersonalSummary(
 
   // Daily aggregation
   const dailyMap: Record<string, { paid: number; owed: number }> = {};
+  // totalPaid tracks real personal spending (everything you physically
+  // paid for, including settled-on-the-spot purchases like gas). But a
+  // settled purchase was already fully reimbursed in cash, so it must NOT
+  // reduce remainingToPay - paidTowardBalance tracks that separately.
+  let paidTowardBalance = 0;
 
   if (paidExpenses) {
     summary.expenseCount = paidExpenses.length;
     summary.recentExpenses = paidExpenses.slice(0, 5);
     for (const e of paidExpenses) {
-      // Settled on the spot (e.g. gas) - everyone already reimbursed you in
-      // cash, so it shouldn't count toward totalPaid/remainingToPay math.
-      // Still shown in spending charts (byType, daily) for awareness.
-      if (!e.settled) summary.totalPaid += e.amount;
+      summary.totalPaid += e.amount;
+      if (!e.settled) paidTowardBalance += e.amount;
       summary.byType[e.type] = (summary.byType[e.type] ?? 0) + e.amount;
       const day = e.created_at.slice(0, 10);
       if (!dailyMap[day]) dailyMap[day] = { paid: 0, owed: 0 };
@@ -2097,7 +2100,7 @@ export async function getPersonalSummary(
   }
 
   summary.totalResponsibility = summary.totalOwed + summary.fixedBillsShare;
-  summary.remainingToPay = summary.totalResponsibility - summary.totalPaid;
+  summary.remainingToPay = summary.totalResponsibility - paidTowardBalance;
 
   return summary;
 }
