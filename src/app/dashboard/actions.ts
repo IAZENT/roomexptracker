@@ -1108,7 +1108,10 @@ export type PersonalSummary = {
   totalOwed: number;
   expenseCount: number;
   byType: Record<string, number>;
+  byTypeOwed: Record<string, number>;
   recentExpenses: { id: string; type: string; amount: number; created_at: string }[];
+  dailySpending: { date: string; paid: number; owed: number }[];
+  topPayerBreakdown: { name: string; amount: number }[];
 };
 
 export async function getPersonalSummary(
@@ -1123,7 +1126,10 @@ export async function getPersonalSummary(
     totalOwed: 0,
     expenseCount: 0,
     byType: {},
+    byTypeOwed: {},
     recentExpenses: [],
+    dailySpending: [],
+    topPayerBreakdown: [],
   };
 
   // Get expenses paid by this user
@@ -1137,31 +1143,99 @@ export async function getPersonalSummary(
 
   const { data: paidExpenses } = await paidQuery.order("created_at", { ascending: false });
 
+  // Daily aggregation
+  const dailyMap: Record<string, { paid: number; owed: number }> = {};
+
   if (paidExpenses) {
     summary.expenseCount = paidExpenses.length;
     summary.recentExpenses = paidExpenses.slice(0, 5);
     for (const e of paidExpenses) {
       summary.totalPaid += e.amount;
       summary.byType[e.type] = (summary.byType[e.type] ?? 0) + e.amount;
+      const day = e.created_at.slice(0, 10);
+      if (!dailyMap[day]) dailyMap[day] = { paid: 0, owed: 0 };
+      dailyMap[day].paid += e.amount;
     }
   }
 
   // Get this user's shares
   const shareQuery = supabase
     .from("expense_shares")
-    .select("share_amount, expense:expenses(id, cycle_id)")
+    .select("share_amount, expense:expenses(id, cycle_id, type)")
     .eq("user_id", userId);
 
   const { data: shares } = await shareQuery;
 
   if (shares) {
     for (const s of shares) {
-      const exp = s.expense as unknown as { id: string; cycle_id: string } | null;
+      const exp = s.expense as unknown as { id: string; cycle_id: string; type: string } | null;
       if (!cycleId || exp?.cycle_id === cycleId) {
         summary.totalOwed += s.share_amount;
+        if (exp?.type) {
+          summary.byTypeOwed[exp.type] = (summary.byTypeOwed[exp.type] ?? 0) + s.share_amount;
+        }
       }
     }
   }
+
+  // Get paid-by-others breakdown (who paid for expenses this user owes)
+  let shareDetailQuery = supabase
+    .from("expense_shares")
+    .select("share_amount, expense:expenses(paid_by, cycle_id)")
+    .eq("user_id", userId);
+
+  if (cycleId) shareDetailQuery = shareDetailQuery.eq("expense.cycle_id", cycleId);
+
+  const { data: shareDetails } = await shareDetailQuery;
+
+  if (shareDetails) {
+    const payerMap: Record<string, number> = {};
+    for (const s of shareDetails) {
+      const exp = s.expense as unknown as { paid_by: string; cycle_id: string } | null;
+      if (!exp) continue;
+      // Skip expenses this user paid themselves
+      if (exp.paid_by === userId) continue;
+      payerMap[exp.paid_by] = (payerMap[exp.paid_by] ?? 0) + s.share_amount;
+    }
+
+    // Resolve names
+    const payerIds = Object.keys(payerMap);
+    if (payerIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, full_name")
+        .in("user_id", payerIds);
+      const nameMap = new Map((profiles ?? []).map((p) => [p.user_id, p.full_name ?? "Unknown"]));
+      summary.topPayerBreakdown = Object.entries(payerMap)
+        .map(([id, amount]) => ({ name: nameMap.get(id) ?? "Unknown", amount }))
+        .sort((a, b) => b.amount - a.amount);
+    }
+  }
+
+  // Get owed daily breakdown from expense_shares joined with expenses
+  let owedDailyQuery = supabase
+    .from("expense_shares")
+    .select("share_amount, expense:expenses(created_at, cycle_id)")
+    .eq("user_id", userId);
+
+  if (cycleId) owedDailyQuery = owedDailyQuery.eq("expense.cycle_id", cycleId);
+
+  const { data: owedDaily } = await owedDailyQuery;
+
+  if (owedDaily) {
+    for (const s of owedDaily) {
+      const exp = s.expense as unknown as { created_at: string; cycle_id: string } | null;
+      if (!exp) continue;
+      const day = exp.created_at.slice(0, 10);
+      if (!dailyMap[day]) dailyMap[day] = { paid: 0, owed: 0 };
+      dailyMap[day].owed += s.share_amount;
+    }
+  }
+
+  // Build sorted daily array
+  summary.dailySpending = Object.entries(dailyMap)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, v]) => ({ date, ...v }));
 
   return summary;
 }
