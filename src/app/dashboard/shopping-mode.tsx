@@ -110,7 +110,11 @@ export function ShoppingMode({
     setSyncResult(result);
     setSyncing(false);
     syncingRef.current = false;
-  }, [householdId, refreshItems]);
+    // Auto-show convert dialog after successful sync
+    if (result.synced > 0 && cycleId) {
+      setShowConvert(true);
+    }
+  }, [householdId, refreshItems, cycleId]);
 
   // Track online/offline and auto-sync on reconnect
   useEffect(() => {
@@ -307,13 +311,23 @@ export function ShoppingMode({
             )}
 
             {unsyncedCount === 0 && items.length > 0 && (
-              <div className="flex items-center justify-center gap-1.5 py-2 text-sm text-muted-foreground">
-                <Check className="h-4 w-4 text-green-600" />
-                All items synced
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-center gap-1.5 py-2 text-sm text-muted-foreground">
+                  <Check className="h-4 w-4 text-green-600" />
+                  All items synced to cloud
+                </div>
+                {cycleId && (
+                  <Button
+                    className="w-full"
+                    onClick={() => setShowConvert(true)}
+                  >
+                    Convert {items.length} item{items.length !== 1 ? "s" : ""} to expense
+                  </Button>
+                )}
               </div>
             )}
 
-            {cycleId && (
+            {unsyncedCount > 0 && cycleId && (
               <Button
                 variant="outline"
                 className="w-full"
