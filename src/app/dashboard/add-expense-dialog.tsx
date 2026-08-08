@@ -28,12 +28,14 @@ export function AddExpenseDialog({
   currentUserId,
   currency,
   customTypes,
+  isOwner,
 }: {
   cycleId: string;
   members: Member[];
   currentUserId: string;
   currency: string;
   customTypes: CustomExpenseType[];
+  isOwner?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState(addExpense, initialState);
@@ -41,6 +43,7 @@ export function AddExpenseDialog({
   const [participants, setParticipants] = useState<Set<string>>(new Set(members.map((m) => m.user_id)));
   const [settled, setSettled] = useState(false);
   const [type, setType] = useState("");
+  const [paidBy, setPaidBy] = useState(currentUserId);
 
   const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen);
@@ -49,6 +52,7 @@ export function AddExpenseDialog({
       setParticipants(new Set(members.map((m) => m.user_id)));
       setSettled(false);
       setType("");
+      setPaidBy(currentUserId);
     }
   };
 
@@ -127,11 +131,30 @@ export function AddExpenseDialog({
             formData.set("settled", settled ? "true" : "false");
             formData.set("cycleId", cycleId);
             formData.set("amount", itemsTotal.toString());
-            formData.set("paidBy", currentUserId);
+            formData.set("paidBy", isOwner ? paidBy : currentUserId);
             action(formData);
           }}
           className="flex flex-col gap-4"
         >
+          {isOwner && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="expense-paid-by">Paid by</Label>
+              <Select value={paidBy} onValueChange={setPaidBy}>
+                <SelectTrigger id="expense-paid-by">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {members.map((m) => (
+                    <SelectItem key={m.user_id} value={m.user_id}>
+                      {m.full_name}
+                      {m.user_id === currentUserId && " (you)"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="expense-type">Type</Label>
             <Select name="type" value={type} onValueChange={setType}>

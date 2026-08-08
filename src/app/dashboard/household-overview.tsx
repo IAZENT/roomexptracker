@@ -144,6 +144,7 @@ export function HouseholdOverview({
                 currentUserId={currentUserId}
                 currency={household.currency}
                 customTypes={customTypes}
+                isOwner={role === "owner"}
               />
             </div>
           )}
@@ -205,6 +206,7 @@ export function HouseholdOverview({
                   currentUserId={currentUserId}
                   currency={household.currency}
                   customTypes={customTypes}
+                  isOwner={role === "owner"}
                 />
               </CardHeader>
               <CardContent>

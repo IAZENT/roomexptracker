@@ -951,6 +951,23 @@ export async function addExpense(
 
   if (!cycle) return { error: "Invalid billing cycle.", values };
 
+  // Only the household owner may record an expense as paid by someone
+  // else - enforced server-side, not just hidden in the UI, since the
+  // client can't be trusted to self-report its own role.
+  if (paidBy !== user.id) {
+    const { data: membership } = await supabase
+      .from("household_members")
+      .select("role")
+      .eq("household_id", cycle.household_id)
+      .eq("user_id", user.id)
+      .is("left_at", null)
+      .single();
+
+    if (membership?.role !== "owner") {
+      return { error: "Only the household owner can add expenses for other members.", values };
+    }
+  }
+
   // Insert the expense
   const { data: expense, error: expenseError } = await supabase
     .from("expenses")
