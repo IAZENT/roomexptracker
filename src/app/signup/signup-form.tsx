@@ -15,13 +15,27 @@ export function SignupForm() {
     <form action={formAction} className="flex flex-col gap-5">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="signup-name">Full name</Label>
-        <Input id="signup-name" name="fullName" placeholder="Your full name" required autoComplete="name" />
+        <Input
+          id="signup-name"
+          name="fullName"
+          placeholder="Your full name"
+          defaultValue={state.values?.fullName}
+          required
+          autoComplete="name"
+        />
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="signup-phone">
           Phone <span className="font-normal text-muted-foreground">(optional)</span>
         </Label>
-        <Input id="signup-phone" name="phone" type="tel" placeholder="Your phone number" autoComplete="tel" />
+        <Input
+          id="signup-phone"
+          name="phone"
+          type="tel"
+          placeholder="Your phone number"
+          defaultValue={state.values?.phone}
+          autoComplete="tel"
+        />
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="signup-email">Email</Label>
@@ -30,6 +44,7 @@ export function SignupForm() {
           name="email"
           type="email"
           placeholder="Enter your email"
+          defaultValue={state.values?.email}
           required
           autoComplete="email"
         />

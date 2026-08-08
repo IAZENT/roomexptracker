@@ -4,7 +4,14 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
-export type AuthState = { error: string | null; message?: string };
+export type AuthState = {
+  error: string | null;
+  message?: string;
+  // Non-sensitive fields echoed back so forms can restore them after an
+  // error — React resets uncontrolled <form action> fields after every
+  // submission (success or failure) unless defaultValue is re-supplied.
+  values?: { email?: string; fullName?: string; phone?: string };
+};
 
 export async function signIn(
   _prevState: AuthState,
@@ -16,7 +23,7 @@ export async function signIn(
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
-  if (error) return { error: error.message };
+  if (error) return { error: error.message, values: { email } };
 
   revalidatePath("/", "layout");
   redirect("/dashboard");
@@ -31,9 +38,10 @@ export async function signUp(
   const confirmPassword = formData.get("confirmPassword") as string;
   const fullName = formData.get("fullName") as string;
   const phone = (formData.get("phone") as string) || null;
+  const values = { email, fullName, phone: phone ?? undefined };
 
   if (password !== confirmPassword) {
-    return { error: "Passwords do not match." };
+    return { error: "Passwords do not match.", values };
   }
 
   const supabase = await createClient();
@@ -43,11 +51,15 @@ export async function signUp(
     options: { data: { full_name: fullName, phone } },
   });
 
-  if (error) return { error: error.message };
+  if (error) return { error: error.message, values };
 
   // If email confirmation is required, Supabase returns no session yet.
   if (!data.session) {
-    return { error: null, message: "Check your email to confirm your account before logging in." };
+    return {
+      error: null,
+      message: "Check your email to confirm your account before logging in.",
+      values,
+    };
   }
 
   revalidatePath("/", "layout");

@@ -20,6 +20,7 @@ export function LoginForm() {
           name="email"
           type="email"
           placeholder="Enter your email"
+          defaultValue={state.values?.email}
           required
           autoComplete="email"
         />
