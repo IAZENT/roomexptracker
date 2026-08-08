@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FixedBillsSettings } from "./fixed-bills-settings";
 import { AddExpenseDialog } from "./add-expense-dialog";
+import { EditExpenseDialog } from "./edit-expense-dialog";
 import { SpendingChart } from "./spending-chart";
 import { ReceiptDialog } from "./receipt-view";
 import { ArchiveHouseholdButton } from "./archive-household";
@@ -13,6 +14,9 @@ import { PersonalDashboard } from "./personal-dashboard";
 import { CustomTypesSettings } from "./custom-types-settings";
 import { requestCycleClose, approveCycleClose } from "./actions";
 import { EXPENSE_TYPE_LABELS } from "@/lib/constants";
+import { Pencil } from "lucide-react";
+import { SettlementDialog } from "./settlement-dialog";
+import { BalanceHistoryChart } from "./balance-history";
 import type { FixedBill, BillingCycle, Expense, Member, CycleHistory, Receipt, ExpenseWithTimestamp, ExpenseSummary, PersonalSummary, CustomExpenseType, ExpenseShare, CloseRequest, CloseApproval } from "./actions";
 
 type Household = {
@@ -43,6 +47,7 @@ export function HouseholdOverview({
   archivedHouseholds,
   expenseShares,
   closeRequest,
+  balanceHistory,
 }: {
   household: Household;
   role: string;
@@ -61,10 +66,13 @@ export function HouseholdOverview({
   archivedHouseholds: { id: string; name: string; archived_at: string | null; created_at: string }[];
   expenseShares: Record<string, ExpenseShare[]>;
   closeRequest: { request: CloseRequest | null; approvals: CloseApproval[] };
+  balanceHistory: { cycleLabel: string; cycleId: string; members: Record<string, { name: string; balance: number }> }[];
 }) {
   const [view, setView] = useState<DashboardView>("shared");
   const [showAllExpenses, setShowAllExpenses] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [showSettlements, setShowSettlements] = useState(false);
   const EXPENSES_PAGE_SIZE = 10;
   const visibleExpenses = showAllExpenses ? expenses : expenses.slice(0, EXPENSES_PAGE_SIZE);
   const hasMoreExpenses = expenses.length > EXPENSES_PAGE_SIZE;
@@ -227,6 +235,18 @@ export function HouseholdOverview({
             </Card>
           )}
 
+          {/* Settlements button */}
+          {currentCycle && expenses.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-1.5 mt-3"
+              onClick={() => setShowSettlements(true)}
+            >
+              View settlements
+            </Button>
+          )}
+
           {/* Close cycle voting */}
           {currentCycle && expenses.length > 0 && (
             <div className="mt-3">
@@ -360,13 +380,21 @@ export function HouseholdOverview({
                             {expense.description && ` - ${expense.description}`}
                           </span>
                         </div>
-                        <div className="flex flex-col items-end">
-                          <span className="text-sm font-medium text-foreground">
-                            {household.currency} {expense.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {household.currency} {perPerson.toLocaleString(undefined, { minimumFractionDigits: 2 })} / person
-                          </span>
+                        <div className="flex items-center gap-2">
+                          <div className="flex flex-col items-end">
+                            <span className="text-sm font-medium text-foreground">
+                              {household.currency} {expense.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {household.currency} {perPerson.toLocaleString(undefined, { minimumFractionDigits: 2 })} / person
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => setEditingExpense(expense)}
+                            className="rounded-md p-1.5 text-muted-foreground hover:bg-background hover:text-foreground transition-colors"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       </div>
                     );
@@ -496,6 +524,18 @@ export function HouseholdOverview({
               currency={household.currency}
             />
           </div>
+
+          {/* Balance history */}
+          {balanceHistory.length > 0 && (
+            <Card className="mt-4 border-border shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Balance history</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <BalanceHistoryChart data={balanceHistory} currency={household.currency} />
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
 
@@ -528,6 +568,32 @@ export function HouseholdOverview({
         <div className="mt-4 flex justify-center">
           <ArchiveHouseholdButton />
         </div>
+      )}
+
+      {/* Edit expense dialog */}
+      {editingExpense && (
+        <EditExpenseDialog
+          expenseId={editingExpense.id}
+          initialType={editingExpense.type}
+          initialAmount={editingExpense.amount}
+          initialPaidBy={editingExpense.paid_by}
+          initialDescription={editingExpense.description ?? ""}
+          members={members}
+          currency={household.currency}
+          customTypes={customTypes}
+          open={!!editingExpense}
+          onOpenChange={(o) => { if (!o) setEditingExpense(null); }}
+        />
+      )}
+
+      {/* Settlement dialog */}
+      {currentCycle && (
+        <SettlementDialog
+          cycleId={currentCycle.id}
+          currency={household.currency}
+          open={showSettlements}
+          onOpenChange={setShowSettlements}
+        />
       )}
     </div>
   );

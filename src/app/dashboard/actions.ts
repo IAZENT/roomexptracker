@@ -847,12 +847,292 @@ export async function getExpenseSharesForCycle(cycleId: string): Promise<Record<
 
 export async function deleteExpense(expenseId: string): Promise<{ error: string | null }> {
   const supabase = await createClient();
+  // Delete shares first, then expense
+  await supabase.from("expense_shares").delete().eq("expense_id", expenseId);
   const { error } = await supabase.from("expenses").delete().eq("id", expenseId);
 
   if (error) return { error: error.message };
 
   revalidatePath("/dashboard");
   return { error: null };
+}
+
+export async function updateExpense(
+  expenseId: string,
+  data: { type?: string; amount?: number; paid_by?: string; description?: string },
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("expenses").update(data).eq("id", expenseId);
+
+  if (error) return { error: error.message };
+
+  // If amount changed, recalculate shares equally
+  if (data.amount !== undefined) {
+    const { data: expense } = await supabase
+      .from("expenses")
+      .select("cycle_id, household_id")
+      .eq("id", expenseId)
+      .single();
+
+    if (expense) {
+      const { count } = await supabase
+        .from("household_members")
+        .select("*", { count: "exact", head: true })
+        .eq("household_id", expense.household_id)
+        .is("left_at", null);
+
+      if (count && count > 0) {
+        const shareAmount = Math.round((data.amount / count) * 100) / 100;
+        // Delete old shares and insert new
+        await supabase.from("expense_shares").delete().eq("expense_id", expenseId);
+        const { data: members } = await supabase
+          .from("household_members")
+          .select("user_id")
+          .eq("household_id", expense.household_id)
+          .is("left_at", null);
+
+        if (members) {
+          await supabase.from("expense_shares").insert(
+            members.map((m) => ({
+              expense_id: expenseId,
+              user_id: m.user_id,
+              share_amount: shareAmount,
+            })),
+          );
+        }
+      }
+    }
+  }
+
+  revalidatePath("/dashboard");
+  return { error: null };
+}
+
+// ---------------------------------------------------------------------------
+// Settlements (who owes whom)
+// ---------------------------------------------------------------------------
+
+export type Settlement = {
+  from: { id: string; name: string };
+  to: { id: string; name: string };
+  amount: number;
+  settled: boolean;
+};
+
+export async function getSettlements(cycleId: string): Promise<{ settlements: Settlement[]; error: string | null }> {
+  const supabase = await createClient();
+
+  // Get all expenses and shares for this cycle
+  const [expensesRes, sharesRes] = await Promise.all([
+    supabase.from("expenses").select("id, paid_by, amount").eq("cycle_id", cycleId),
+    supabase.from("expense_shares").select("expense_id, user_id, share_amount"),
+  ]);
+
+  if (expensesRes.error || sharesRes.error) {
+    return { settlements: [], error: expensesRes.error?.message ?? sharesRes.error?.message ?? "Unknown error" };
+  }
+
+  const expenses = expensesRes.data ?? [];
+  const allShares = sharesRes.data ?? [];
+
+  // Get household_id from first expense
+  if (expenses.length === 0) return { settlements: [], error: null };
+
+  const { data: firstExpense } = await supabase
+    .from("expenses")
+    .select("household_id")
+    .eq("cycle_id", cycleId)
+    .limit(1)
+    .single();
+
+  if (!firstExpense) return { settlements: [], error: null };
+
+  // Get all members
+  const { data: members } = await supabase
+    .from("household_members")
+    .select("user_id, profiles(full_name)")
+    .eq("household_id", firstExpense.household_id)
+    .is("left_at", null);
+
+  if (!members) return { settlements: [], error: null };
+
+  // Calculate net balance for each person
+  const balances: Record<string, number> = {};
+  for (const m of members) {
+    balances[m.user_id] = 0;
+  }
+
+  // For each expense: payer gets +amount, each person in shares owes -share_amount
+  for (const exp of expenses) {
+    balances[exp.paid_by] = (balances[exp.paid_by] ?? 0) + exp.amount;
+    const shares = allShares.filter((s) => s.expense_id === exp.id);
+    for (const share of shares) {
+      balances[share.user_id] = (balances[share.user_id] ?? 0) - share.share_amount;
+    }
+  }
+
+  // Simplify debts using greedy algorithm
+  const debtors: { id: string; amount: number }[] = [];
+  const creditors: { id: string; amount: number }[] = [];
+
+  for (const [userId, balance] of Object.entries(balances)) {
+    if (balance < -0.01) {
+      debtors.push({ id: userId, amount: Math.abs(balance) });
+    } else if (balance > 0.01) {
+      creditors.push({ id: userId, amount: balance });
+    }
+  }
+
+  debtors.sort((a, b) => b.amount - a.amount);
+  creditors.sort((a, b) => b.amount - a.amount);
+
+  const settlements: { from: string; to: string; amount: number }[] = [];
+  let i = 0;
+  let j = 0;
+
+  while (i < debtors.length && j < creditors.length) {
+    const transfer = Math.min(debtors[i].amount, creditors[j].amount);
+    if (transfer > 0.01) {
+      settlements.push({
+        from: debtors[i].id,
+        to: creditors[j].id,
+        amount: Math.round(transfer * 100) / 100,
+      });
+    }
+    debtors[i].amount -= transfer;
+    creditors[j].amount -= transfer;
+    if (debtors[i].amount < 0.01) i++;
+    if (creditors[j].amount < 0.01) j++;
+  }
+
+  // Check which are already settled
+  const { data: settledData } = await supabase
+    .from("settled_debts")
+    .select("from_user_id, to_user_id")
+    .eq("cycle_id", cycleId);
+
+  const settledSet = new Set(
+    (settledData ?? []).map((s) => `${s.from_user_id}-${s.to_user_id}`),
+  );
+
+  // Map user IDs to names
+  const nameMap: Record<string, string> = {};
+  for (const m of members) {
+    nameMap[m.user_id] = (m.profiles as unknown as { full_name: string })?.full_name ?? "Unknown";
+  }
+
+  const result: Settlement[] = settlements.map((s) => ({
+    from: { id: s.from, name: nameMap[s.from] ?? "Unknown" },
+    to: { id: s.to, name: nameMap[s.to] ?? "Unknown" },
+    amount: s.amount,
+    settled: settledSet.has(`${s.from}-${s.to}`),
+  }));
+
+  return { settlements: result, error: null };
+}
+
+export async function markDebtSettled(
+  cycleId: string,
+  fromUserId: string,
+  toUserId: string,
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("settled_debts").insert({
+    cycle_id: cycleId,
+    from_user_id: fromUserId,
+    to_user_id: toUserId,
+  });
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/dashboard");
+  return { error: null };
+}
+
+// ---------------------------------------------------------------------------
+// Balance history (net balance per member per closed cycle)
+// ---------------------------------------------------------------------------
+
+export type BalanceHistoryPoint = {
+  cycleLabel: string;
+  cycleId: string;
+  members: Record<string, { name: string; balance: number }>;
+};
+
+export async function getBalanceHistory(householdId: string): Promise<BalanceHistoryPoint[]> {
+  const supabase = await createClient();
+
+  // Get all closed cycles
+  const { data: cycles } = await supabase
+    .from("billing_cycles")
+    .select("id, start_date")
+    .eq("household_id", householdId)
+    .eq("status", "closed")
+    .order("start_date", { ascending: true });
+
+  if (!cycles || cycles.length === 0) return [];
+
+  // Get members
+  const { data: members } = await supabase
+    .from("household_members")
+    .select("user_id, profiles(full_name)")
+    .eq("household_id", householdId)
+    .is("left_at", null);
+
+  if (!members) return [];
+
+  const nameMap: Record<string, string> = {};
+  for (const m of members) {
+    nameMap[m.user_id] = (m.profiles as unknown as { full_name: string })?.full_name ?? "Unknown";
+  }
+
+  const result: BalanceHistoryPoint[] = [];
+
+  for (const cycle of cycles) {
+    // Get expenses for this cycle
+    const { data: expenses } = await supabase
+      .from("expenses")
+      .select("id, paid_by, amount")
+      .eq("cycle_id", cycle.id);
+
+    const { data: shares } = await supabase
+      .from("expense_shares")
+      .select("expense_id, user_id, share_amount");
+
+    if (!expenses || !shares) continue;
+
+    const balances: Record<string, number> = {};
+    for (const m of members) {
+      balances[m.user_id] = 0;
+    }
+
+    for (const exp of expenses) {
+      balances[exp.paid_by] = (balances[exp.paid_by] ?? 0) + exp.amount;
+      const expShares = shares.filter((s) => s.expense_id === exp.id);
+      for (const share of expShares) {
+        balances[share.user_id] = (balances[share.user_id] ?? 0) - share.share_amount;
+      }
+    }
+
+    const monthDate = new Date(cycle.start_date);
+    const label = monthDate.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+
+    const membersData: Record<string, { name: string; balance: number }> = {};
+    for (const [userId, balance] of Object.entries(balances)) {
+      membersData[userId] = {
+        name: nameMap[userId] ?? "Unknown",
+        balance: Math.round(balance * 100) / 100,
+      };
+    }
+
+    result.push({
+      cycleLabel: label,
+      cycleId: cycle.id,
+      members: membersData,
+    });
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------

@@ -114,8 +114,9 @@ export function ShoppingMode({
     }
   }, [householdId]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
-    loadServerItems();
+    void loadServerItems();
   }, [loadServerItems]);
 
   const refreshItems = useCallback(() => {

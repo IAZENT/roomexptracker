@@ -7,7 +7,7 @@ import { ShoppingCart, LogOut } from "lucide-react";
 import { signOut } from "@/app/login/actions";
 import { HouseholdSetup } from "./household-setup";
 import { HouseholdOverview } from "./household-overview";
-import { getFixedBills, ensureCurrentCycle, getCycles, getExpenses, getActiveMembers, getCycleHistory, getReceiptsForCycle, getArchivedHouseholds, getExpenseTimeline, getExpenseSummary, getPersonalSummary, getCustomExpenseTypes, getExpenseSharesForCycle, getCloseRequestForCycle } from "./actions";
+import { getFixedBills, ensureCurrentCycle, getCycles, getExpenses, getActiveMembers, getCycleHistory, getReceiptsForCycle, getArchivedHouseholds, getExpenseTimeline, getExpenseSummary, getPersonalSummary, getCustomExpenseTypes, getExpenseSharesForCycle, getCloseRequestForCycle, getBalanceHistory } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +65,7 @@ export default async function DashboardPage() {
   let expenseShares: Awaited<ReturnType<typeof getExpenseSharesForCycle>> = {};
   let closeRequest: Awaited<ReturnType<typeof getCloseRequestForCycle>> = { request: null, approvals: [] };
   const closedCycleReceipts: Record<string, Awaited<ReturnType<typeof getReceiptsForCycle>>> = {};
+  let balanceHistory: Awaited<ReturnType<typeof getBalanceHistory>> = [];
 
   if (active?.household) {
     const hid = active.household.id;
@@ -102,6 +103,9 @@ export default async function DashboardPage() {
         closedCycleReceipts[c.id] = receiptResults[i];
       });
     }
+
+    // Fetch balance history
+    balanceHistory = await getBalanceHistory(hid);
   }
 
   const archivedHouseholds = await getArchivedHouseholds(user.id);
@@ -154,6 +158,7 @@ export default async function DashboardPage() {
             archivedHouseholds={archivedHouseholds}
             expenseShares={expenseShares}
             closeRequest={closeRequest}
+            balanceHistory={balanceHistory}
           />
         ) : (
           <HouseholdSetup />
