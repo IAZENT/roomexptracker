@@ -12,6 +12,7 @@ import { ReceiptDialog } from "./receipt-view";
 import { ArchiveHouseholdButton } from "./archive-household";
 import { PersonalDashboard } from "./personal-dashboard";
 import { CustomTypesSettings } from "./custom-types-settings";
+import { PaysForSettings } from "./pays-for-settings";
 import { requestCycleClose, approveCycleClose } from "./actions";
 import { EXPENSE_TYPE_LABELS } from "@/lib/constants";
 import { Pencil, ChevronDown } from "lucide-react";
@@ -462,6 +463,13 @@ export function HouseholdOverview({
           {role === "owner" && (
             <div className="mt-4">
               <FixedBillsSettings bills={bills} currency={household.currency} />
+            </div>
+          )}
+
+          {/* Pays-for settings - owner only */}
+          {role === "owner" && (
+            <div className="mt-4">
+              <PaysForSettings householdId={household.id} members={members} role={role} />
             </div>
           )}
 

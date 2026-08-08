@@ -7,13 +7,43 @@ import { createClient } from "@/lib/supabase/server";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Split amount equally among count members, giving the remainder to the first.
- *  Returns array of share amounts that sum exactly to amount. */
-function splitEqually(amount: number, count: number): number[] {
-  if (count <= 0) return [];
-  const base = Math.floor((amount * 100) / count) / 100;
-  const remainder = Math.round((amount - base * (count - 1)) * 100) / 100;
-  return Array.from({ length: count }, (_, i) => (i === count - 1 ? remainder : base));
+/** Split amount based on pays_for coverage.
+ *  Each member covers N people (self + dependents).
+ *  Share = (coverage / totalCoverage) * amount. */
+function splitByCoverage(
+  amount: number,
+  members: { user_id: string; pays_for: string[] | null }[],
+): { user_id: string; share_amount: number }[] {
+  if (members.length === 0) return [];
+
+  // Each member covers at least themselves
+  const coverage = members.map((m) => ({
+    user_id: m.user_id,
+    count: m.pays_for && m.pays_for.length > 0 ? m.pays_for.length : 1,
+  }));
+
+  const totalCoverage = coverage.reduce((sum, c) => sum + c.count, 0);
+  if (totalCoverage === 0) return [];
+
+  // Calculate raw shares
+  const rawShares = coverage.map((c) => ({
+    user_id: c.user_id,
+    share: (c.count / totalCoverage) * amount,
+  }));
+
+  // Round to 2 decimals, give remainder to first
+  const rounded = rawShares.map((r) => ({
+    user_id: r.user_id,
+    share_amount: Math.floor(r.share * 100) / 100,
+  }));
+
+  const totalRounded = rounded.reduce((sum, r) => sum + r.share_amount, 0);
+  const remainder = Math.round((amount - totalRounded) * 100) / 100;
+  if (remainder !== 0 && rounded.length > 0) {
+    rounded[0].share_amount = Math.round((rounded[0].share_amount + remainder) * 100) / 100;
+  }
+
+  return rounded;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +130,40 @@ export type FixedBillActionState = {
   error: string | null;
   values?: Record<string, string>;
 };
+
+// ---------------------------------------------------------------------------
+// Pays-for settings
+// ---------------------------------------------------------------------------
+
+export async function updatePaysFor(
+  householdId: string,
+  userId: string,
+  paysFor: string[] | null,
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+
+  // Only owner can edit pays_for
+  const { data: membership } = await supabase
+    .from("household_members")
+    .select("role")
+    .eq("household_id", householdId)
+    .eq("user_id", (await supabase.auth.getUser()).data.user?.id ?? "")
+    .is("left_at", null)
+    .single();
+
+  if (membership?.role !== "owner") return { error: "Only the household owner can edit pays-for settings." };
+
+  const { error } = await supabase
+    .from("household_members")
+    .update({ pays_for: paysFor })
+    .eq("household_id", householdId)
+    .eq("user_id", userId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/dashboard");
+  return { error: null };
+}
 
 export async function upsertFixedBills(
   prevState: FixedBillActionState,
@@ -283,7 +347,7 @@ export async function ensureCurrentCycle(
         .eq("id", openCycle.id);
 
       // Generate receipts for the closed cycle
-      await generateReceipts(householdId, openCycle.id, count || 0);
+      await generateReceipts(householdId, openCycle.id);
 
       // Fall through to create next cycle
     } else {
@@ -318,18 +382,22 @@ export async function ensureCurrentCycle(
 async function generateReceipts(
   householdId: string,
   cycleId: string,
-  memberCount: number,
 ) {
   const supabase = await createClient();
 
-  // Get all active members
+  // Get all active members with pays_for
   const { data: members } = await supabase
     .from("household_members")
-    .select("user_id")
+    .select("user_id, pays_for")
     .eq("household_id", householdId)
     .is("left_at", null);
 
   if (!members || members.length === 0) return;
+
+  // Calculate coverage for fixed bills split
+  const totalCoverage = members.reduce((sum, m) => {
+    return sum + (m.pays_for && m.pays_for.length > 0 ? m.pays_for.length : 1);
+  }, 0);
 
   // Get the cycle's start date to filter fixed bills
   const { data: cycle } = await supabase
@@ -377,15 +445,17 @@ async function generateReceipts(
 
   // Generate a receipt for each member
   for (const member of members) {
+    const memberCoverage = member.pays_for && member.pays_for.length > 0 ? member.pays_for.length : 1;
+
     const fixedBillsObj: Record<string, number> = {};
     for (const [type, amount] of latestBills) {
-      fixedBillsObj[type] = Math.round((amount / memberCount) * 100) / 100;
+      fixedBillsObj[type] = Math.round((amount * memberCoverage / totalCoverage) * 100) / 100;
     }
 
     const expenseSharesArr: { expense_id: string; type: string; amount: number; share: number }[] = [];
     let totalFixed = 0;
     for (const amount of latestBills.values()) {
-      totalFixed += amount / memberCount;
+      totalFixed += (amount * memberCoverage / totalCoverage);
     }
 
     let totalExpenses = 0;
@@ -623,7 +693,7 @@ async function executeCycleClose(
     .eq("cycle_id", cycleId)
     .eq("status", "pending");
 
-  await generateReceipts(householdId, cycleId, count || 0);
+  await generateReceipts(householdId, cycleId);
 
   revalidatePath("/dashboard");
   return { error: null };
@@ -660,13 +730,14 @@ export type Member = {
   user_id: string;
   full_name: string | null;
   role: string;
+  pays_for: string[] | null;
 };
 
 export async function getActiveMembers(householdId: string): Promise<Member[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("household_members")
-    .select("user_id, role")
+    .select("user_id, role, pays_for")
     .eq("household_id", householdId)
     .is("left_at", null);
 
@@ -682,14 +753,11 @@ export async function getActiveMembers(householdId: string): Promise<Member[]> {
     (profiles ?? []).map((p) => [p.user_id, p.full_name]),
   );
 
-  const roleMap = new Map(
-    data.map((m) => [m.user_id, m.role]),
-  );
-
   return data.map((m) => ({
     user_id: m.user_id,
     full_name: profileMap.get(m.user_id) ?? "Unknown",
-    role: roleMap.get(m.user_id) ?? "member",
+    role: m.role ?? "member",
+    pays_for: m.pays_for ?? null,
   }));
 }
 
@@ -795,16 +863,15 @@ export async function addExpense(
   }
 
   if (shares.length === 0) {
-    // Equal split across active members
+    // Split based on pays_for coverage
     const { data: members } = await supabase
       .from("household_members")
-      .select("user_id")
+      .select("user_id, pays_for")
       .eq("household_id", cycle.household_id)
       .is("left_at", null);
 
     if (members && members.length > 0) {
-      const amounts = splitEqually(amount, members.length);
-      shares = members.map((m, i) => ({ user_id: m.user_id, share_amount: amounts[i] }));
+      shares = splitByCoverage(amount, members);
     }
   }
 
@@ -939,30 +1006,22 @@ export async function updateExpense(
 
   // Only recalculate shares if amount actually changed
   if (data.amount !== undefined && data.amount !== current.amount) {
-    const { count } = await supabase
+    const { data: members } = await supabase
       .from("household_members")
-      .select("*", { count: "exact", head: true })
+      .select("user_id, pays_for")
       .eq("household_id", current.household_id)
       .is("left_at", null);
 
-    if (count && count > 0) {
-      const amounts = splitEqually(data.amount, count);
+    if (members && members.length > 0) {
+      const newShares = splitByCoverage(data.amount, members);
       await supabase.from("expense_shares").delete().eq("expense_id", expenseId);
-      const { data: members } = await supabase
-        .from("household_members")
-        .select("user_id")
-        .eq("household_id", current.household_id)
-        .is("left_at", null);
-
-      if (members) {
-        await supabase.from("expense_shares").insert(
-          members.map((m, i) => ({
-            expense_id: expenseId,
-            user_id: m.user_id,
-            share_amount: amounts[i],
-          })),
-        );
-      }
+      await supabase.from("expense_shares").insert(
+        newShares.map((s) => ({
+          expense_id: expenseId,
+          user_id: s.user_id,
+          share_amount: s.share_amount,
+        })),
+      );
     }
   }
 
@@ -1587,20 +1646,20 @@ export async function convertShoppingToExpense(
 
   if (expenseError) return { error: expenseError.message };
 
-  // Get active members for equal split
+  // Get active members for coverage-based split
   const { data: members } = await supabase
     .from("household_members")
-    .select("user_id")
+    .select("user_id, pays_for")
     .eq("household_id", householdId)
     .is("left_at", null);
 
   if (members && members.length > 0) {
-    const amounts = splitEqually(total, members.length);
+    const newShares = splitByCoverage(total, members);
     await supabase.from("expense_shares").insert(
-      members.map((m, i) => ({
+      newShares.map((s) => ({
         expense_id: expense.id,
-        user_id: m.user_id,
-        share_amount: amounts[i],
+        user_id: s.user_id,
+        share_amount: s.share_amount,
       })),
     );
   }
