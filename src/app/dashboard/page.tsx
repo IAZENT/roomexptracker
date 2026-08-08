@@ -3,11 +3,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
-import { ShoppingCart } from "lucide-react";
+import { ShoppingCart, LogOut } from "lucide-react";
 import { signOut } from "@/app/login/actions";
 import { HouseholdSetup } from "./household-setup";
 import { HouseholdOverview } from "./household-overview";
 import { getFixedBills, ensureCurrentCycle, getCycles, getExpenses, getActiveMembers, getCycleHistory, getReceiptsForCycle, getArchivedHouseholds, getExpenseTimeline, getExpenseSummary, getPersonalSummary, getCustomExpenseTypes } from "./actions";
+
+export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -60,20 +62,29 @@ export default async function DashboardPage() {
   const closedCycleReceipts: Record<string, Awaited<ReturnType<typeof getReceiptsForCycle>>> = {};
 
   if (active?.household) {
-    bills = await getFixedBills(active.household.id);
-    currentCycle = await ensureCurrentCycle(active.household.id, active.household.cycle_end_day);
-    cycles = await getCycles(active.household.id);
-    cycleHistory = await getCycleHistory(active.household.id);
-    timeline = await getExpenseTimeline(active.household.id);
-    summary = await getExpenseSummary(active.household.id, currentCycle?.id ?? null);
-    personalSummary = await getPersonalSummary(active.household.id, currentCycle?.id ?? null, user.id);
-    customTypes = await getCustomExpenseTypes(active.household.id);
+    const hid = active.household.id;
+
+    // Fetch all data in parallel for faster page load
+    [bills, currentCycle, cycles, cycleHistory, timeline, summary, personalSummary, customTypes] = await Promise.all([
+      getFixedBills(hid),
+      ensureCurrentCycle(hid, active.household.cycle_end_day),
+      getCycles(hid),
+      getCycleHistory(hid),
+      getExpenseTimeline(hid),
+      getExpenseSummary(hid, null),
+      getPersonalSummary(hid, null, user.id),
+      getCustomExpenseTypes(hid),
+    ]);
 
     if (currentCycle) {
-      expenses = await getExpenses(currentCycle.id);
+      [expenses, summary, personalSummary] = await Promise.all([
+        getExpenses(currentCycle.id),
+        getExpenseSummary(hid, currentCycle.id),
+        getPersonalSummary(hid, currentCycle.id, user.id),
+      ]);
     }
 
-    members = await getActiveMembers(active.household.id);
+    members = await getActiveMembers(hid);
 
     // Fetch receipts for closed cycles
     for (const cycle of cycles.filter((c) => c.status === "closed")) {
@@ -85,30 +96,33 @@ export default async function DashboardPage() {
 
   return (
     <div className="min-h-svh bg-background">
-      <header className="flex items-center justify-between border-b border-border px-6 py-4">
-        <div className="flex items-center gap-2">
-          <Image src="/logo-mark.png" alt="" width={28} height={28} className="rounded-lg" />
-          <h1 className="text-lg font-semibold tracking-tight text-foreground">
-            RoomMate
-          </h1>
-        </div>
-        <div className="flex items-center gap-2">
-          {active?.household && (
-            <Link href="/dashboard/shopping">
-              <Button variant="ghost" size="sm" className="gap-1.5">
-                <ShoppingCart className="h-4 w-4" />
-                Shopping
+      <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-sm">
+        <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4">
+          <div className="flex items-center gap-2">
+            <Image src="/logo-mark.png" alt="" width={24} height={24} className="rounded-lg sm:h-7 sm:w-7" />
+            <h1 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">
+              RoomMate
+            </h1>
+          </div>
+          <div className="flex items-center gap-1 sm:gap-2">
+            {active?.household && (
+              <Link href="/dashboard/shopping">
+                <Button variant="ghost" size="sm" className="gap-1.5 px-2 sm:px-3">
+                  <ShoppingCart className="h-4 w-4" />
+                  <span className="hidden sm:inline">Shopping</span>
+                </Button>
+              </Link>
+            )}
+            <form action={signOut}>
+              <Button variant="ghost" size="sm" type="submit" className="px-2 sm:px-3">
+                <LogOut className="h-4 w-4 sm:hidden" />
+                <span className="hidden sm:inline">Log out</span>
               </Button>
-            </Link>
-          )}
-          <form action={signOut}>
-            <Button variant="ghost" size="sm" type="submit">
-              Log out
-            </Button>
-          </form>
+            </form>
+          </div>
         </div>
       </header>
-      <main className="mx-auto flex max-w-3xl flex-col items-center px-6 py-16">
+      <main className="mx-auto flex max-w-3xl flex-col items-center px-4 py-8 sm:px-6 sm:py-16">
         {active?.household ? (
           <HouseholdOverview
             household={active.household}
