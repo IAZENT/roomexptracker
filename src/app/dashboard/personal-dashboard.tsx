@@ -632,23 +632,34 @@ export function PersonalDashboard({
         </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-1.5">
-            {members.map((m) => (
-              <div key={m.user_id} className="flex items-center justify-between rounded-lg bg-secondary/50 px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-                    {(m.full_name ?? "U").charAt(0).toUpperCase()}
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-sm font-medium text-foreground">
-                      {m.full_name ?? "Unknown"}
-                      {m.user_id === currentUserId && (
-                        <span className="ml-1.5 text-xs text-muted-foreground">(you)</span>
-                      )}
-                    </span>
+            {members.map((m) => {
+              const coversOthers = m.pays_for && m.pays_for.length > 1;
+              return (
+                <div key={m.user_id} className="flex items-center justify-between rounded-lg bg-secondary/50 px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
+                      {(m.full_name ?? "U").charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-foreground">
+                        {m.full_name ?? "Unknown"}
+                        {m.user_id === currentUserId && (
+                          <span className="ml-1.5 text-xs text-muted-foreground">(you)</span>
+                        )}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {coversOthers
+                          ? `Pays for: ${members
+                              .filter((other) => m.pays_for!.includes(other.user_id))
+                              .map((o) => (o.user_id === m.user_id ? `${o.full_name} (self)` : o.full_name))
+                              .join(", ")}`
+                          : "Pays for self only"}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </CardContent>
       </Card>
