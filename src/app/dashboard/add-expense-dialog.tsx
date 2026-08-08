@@ -63,6 +63,9 @@ export function AddExpenseDialog({
       )
     : "";
 
+  // Validate custom split sums to total
+  const customSplitValid = !customSplit || (totalCustom > 0 && Math.abs(totalCustom - parseFloat(state.values?.amount ?? "0")) < 0.01);
+
   // Build full type list: defaults + custom
   const allTypes = [
     ...EXPENSE_TYPES,
@@ -234,9 +237,14 @@ export function AddExpenseDialog({
             <p className="text-sm text-destructive">{state.error}</p>
           )}
 
-          <Button type="submit" className="h-11 w-full rounded-xl text-base" disabled={pending}>
+          <Button type="submit" className="h-11 w-full rounded-xl text-base" disabled={pending || (customSplit && !customSplitValid)}>
             {pending ? "Adding..." : "Add expense"}
           </Button>
+          {customSplit && !customSplitValid && totalCustom > 0 && (
+            <p className="text-xs text-destructive text-center">
+              Custom split ({currency} {totalCustom.toFixed(2)}) must equal the expense amount ({currency} {parseFloat(state.values?.amount ?? "0").toFixed(2)})
+            </p>
+          )}
         </form>
       </DialogContent>
     </Dialog>

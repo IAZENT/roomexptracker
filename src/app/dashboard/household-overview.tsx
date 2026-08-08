@@ -12,7 +12,7 @@ import { ArchiveHouseholdButton } from "./archive-household";
 import { PersonalDashboard } from "./personal-dashboard";
 import { CustomTypesSettings } from "./custom-types-settings";
 import { EXPENSE_TYPE_LABELS } from "@/lib/constants";
-import type { FixedBill, BillingCycle, Expense, Member, CycleHistory, Receipt, ExpenseWithTimestamp, ExpenseSummary, PersonalSummary, CustomExpenseType } from "./actions";
+import type { FixedBill, BillingCycle, Expense, Member, CycleHistory, Receipt, ExpenseWithTimestamp, ExpenseSummary, PersonalSummary, CustomExpenseType, ExpenseShare } from "./actions";
 
 type Household = {
   id: string;
@@ -40,6 +40,7 @@ export function HouseholdOverview({
   customTypes,
   closedCycleReceipts,
   archivedHouseholds,
+  expenseShares,
 }: {
   household: Household;
   role: string;
@@ -56,6 +57,7 @@ export function HouseholdOverview({
   customTypes: CustomExpenseType[];
   closedCycleReceipts: Record<string, Receipt[]>;
   archivedHouseholds: { id: string; name: string; archived_at: string | null; created_at: string }[];
+  expenseShares: Record<string, ExpenseShare[]>;
 }) {
   const [view, setView] = useState<DashboardView>("shared");
   const closedCycles = cycles.filter((c) => c.status === "closed");
@@ -231,6 +233,9 @@ export function HouseholdOverview({
                 <div className="flex flex-col gap-2">
                   {visibleExpenses.map((expense) => {
                     const payer = members.find((m) => m.user_id === expense.paid_by);
+                    const shares = expenseShares[expense.id] ?? [];
+                    const currentUserShare = shares.find((s) => s.user_id === currentUserId);
+                    const perPerson = currentUserShare?.share_amount ?? (members.length > 0 ? expense.amount / members.length : 0);
                     return (
                       <div key={expense.id} className="flex items-center justify-between rounded-lg bg-secondary/50 px-3 py-2">
                         <div className="flex flex-col">
@@ -242,9 +247,14 @@ export function HouseholdOverview({
                             {expense.description && ` - ${expense.description}`}
                           </span>
                         </div>
-                        <span className="text-sm font-medium text-foreground">
-                          {household.currency} {expense.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </span>
+                        <div className="flex flex-col items-end">
+                          <span className="text-sm font-medium text-foreground">
+                            {household.currency} {expense.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {household.currency} {perPerson.toLocaleString(undefined, { minimumFractionDigits: 2 })} / person
+                          </span>
+                        </div>
                       </div>
                     );
                   })}
@@ -304,7 +314,7 @@ export function HouseholdOverview({
           {closedCycles.length > 0 && (
             <Card className="mt-4 border-border shadow-sm">
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Past cycles</CardTitle>
+                <CardTitle className="text-base">Past cycles & receipts</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col gap-3">
@@ -327,7 +337,7 @@ export function HouseholdOverview({
                             {userReceipt && ` | You owe: ${household.currency} ${userReceipt.total_owed.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
                           </span>
                         </div>
-                        {userReceipt && (
+                        {userReceipt ? (
                           <ReceiptDialog
                             receipt={userReceipt}
                             householdName={household.name}
@@ -341,11 +351,24 @@ export function HouseholdOverview({
                               </Badge>
                             }
                           />
+                        ) : (
+                          <Badge variant="secondary">No receipt</Badge>
                         )}
                       </div>
                     );
                   })}
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Receipt info when no closed cycles */}
+          {closedCycles.length === 0 && (
+            <Card className="mt-4 border-border shadow-sm">
+              <CardContent className="pt-4">
+                <p className="text-sm text-muted-foreground text-center">
+                  Receipts will be generated when billing cycles close. Each person&apos;s itemized breakdown will be available here.
+                </p>
               </CardContent>
             </Card>
           )}

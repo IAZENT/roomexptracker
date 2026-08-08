@@ -599,6 +599,33 @@ export async function getExpenseShares(expenseId: string): Promise<ExpenseShare[
   return data || [];
 }
 
+export async function getExpenseSharesForCycle(cycleId: string): Promise<Record<string, ExpenseShare[]>> {
+  const supabase = await createClient();
+  const { data: expenses } = await supabase
+    .from("expenses")
+    .select("id")
+    .eq("cycle_id", cycleId);
+
+  if (!expenses || expenses.length === 0) return {};
+
+  const expenseIds = expenses.map((e) => e.id);
+  const { data: shares } = await supabase
+    .from("expense_shares")
+    .select("*")
+    .in("expense_id", expenseIds);
+
+  if (!shares) return {};
+
+  const sharesByExpense: Record<string, ExpenseShare[]> = {};
+  for (const share of shares) {
+    if (!sharesByExpense[share.expense_id]) {
+      sharesByExpense[share.expense_id] = [];
+    }
+    sharesByExpense[share.expense_id].push(share);
+  }
+  return sharesByExpense;
+}
+
 export async function deleteExpense(expenseId: string): Promise<{ error: string | null }> {
   const supabase = await createClient();
   const { error } = await supabase.from("expenses").delete().eq("id", expenseId);
