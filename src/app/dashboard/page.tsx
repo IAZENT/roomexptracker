@@ -47,6 +47,7 @@ export default async function DashboardPage() {
     totalByType: {},
     totalByPayer: {},
     totalByMember: {},
+    owedByMember: {},
     grandTotal: 0,
     fixedBillsTotal: 0,
     variableTotal: 0,

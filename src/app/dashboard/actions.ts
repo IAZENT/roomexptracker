@@ -1465,7 +1465,8 @@ export async function getExpenseTimeline(householdId: string): Promise<ExpenseWi
 export type ExpenseSummary = {
   totalByType: Record<string, number>;
   totalByPayer: Record<string, number>;
-  totalByMember: Record<string, number>; // share owed
+  totalByMember: Record<string, number>; // each member's total share of cycle spend, settled included
+  owedByMember: Record<string, number>; // still-outstanding share, settled excluded
   grandTotal: number;
   fixedBillsTotal: number;
   variableTotal: number;
@@ -1481,6 +1482,7 @@ export async function getExpenseSummary(
     totalByType: {},
     totalByPayer: {},
     totalByMember: {},
+    owedByMember: {},
     grandTotal: 0,
     fixedBillsTotal: 0,
     variableTotal: 0,
@@ -1568,10 +1570,14 @@ export async function getExpenseSummary(
 
       if (shares) {
         for (const s of shares) {
+          // Always counts toward "your total share of cycle spend."
+          summary.totalByMember[s.user_id] = (summary.totalByMember[s.user_id] ?? 0) + s.share_amount;
+
           if (settledExpenseIds.has(s.expense_id)) {
             summary.totalByPayer[s.user_id] = (summary.totalByPayer[s.user_id] ?? 0) + s.share_amount;
           } else {
-            summary.totalByMember[s.user_id] = (summary.totalByMember[s.user_id] ?? 0) + s.share_amount;
+            // Still-outstanding portion only - excludes settled.
+            summary.owedByMember[s.user_id] = (summary.owedByMember[s.user_id] ?? 0) + s.share_amount;
           }
         }
       }
@@ -2036,10 +2042,12 @@ export async function getPersonalSummary(
   // paidTowardBalance stays non-settled-only either way, since settled
   // money was already reimbursed in cash and shouldn't reduce what's owed.
   let paidTowardBalance = 0;
+  // "Recent expenses" needs to show YOUR portion, not the raw expense
+  // amount - for a settled expense that's your share, not the total.
+  const recentPaid: { id: string; type: string; amount: number; created_at: string }[] = [];
 
   if (paidExpenses) {
     summary.expenseCount = paidExpenses.length;
-    summary.recentExpenses = paidExpenses.slice(0, 5);
     for (const e of paidExpenses) {
       // Settled expenses are credited via each participant's own share
       // below instead (a settled purchase has no single fronting payer),
@@ -2052,6 +2060,7 @@ export async function getPersonalSummary(
       const day = e.created_at.slice(0, 10);
       if (!dailyMap[day]) dailyMap[day] = { paid: 0, owed: 0 };
       dailyMap[day].paid += e.amount;
+      recentPaid.push({ id: e.id, type: e.type, amount: e.amount, created_at: e.created_at });
     }
   }
 
@@ -2068,12 +2077,14 @@ export async function getPersonalSummary(
       if (exp.settled) {
         // Your split of a settled expense counts as money you personally
         // paid (your own cut, or a covered member's cut if you cover them)
-        // - reflected in the charts too, not just the headline number.
+        // - reflected in the charts and recent-expenses list too, not just
+        // the headline number.
         summary.totalPaid += s.share_amount;
         summary.byType[exp.type] = (summary.byType[exp.type] ?? 0) + s.share_amount;
         const settledDay = exp.created_at.slice(0, 10);
         if (!dailyMap[settledDay]) dailyMap[settledDay] = { paid: 0, owed: 0 };
         dailyMap[settledDay].paid += s.share_amount;
+        recentPaid.push({ id: exp.id, type: exp.type, amount: s.share_amount, created_at: exp.created_at });
         continue;
       }
 
@@ -2112,6 +2123,10 @@ export async function getPersonalSummary(
   summary.dailySpending = Object.entries(dailyMap)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, v]) => ({ date, ...v }));
+
+  summary.recentExpenses = recentPaid
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .slice(0, 5);
 
   // Your share of this cycle's fixed bills (rent, water...), using the same
   // equal-split + pays_for coverage logic as variable expenses, so it's

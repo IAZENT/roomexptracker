@@ -323,13 +323,13 @@ function PerPersonBarChart({
   currency: string;
 }) {
   const data = useMemo(() => {
-    return Object.entries(summary.totalByMember)
+    return Object.entries(summary.owedByMember)
       .map(([userId, amount]) => ({
         name: members.find((m) => m.user_id === userId)?.full_name ?? "Unknown",
         amount,
       }))
       .sort((a, b) => b.amount - a.amount);
-  }, [summary.totalByMember, members]);
+  }, [summary.owedByMember, members]);
 
   if (data.length === 0) {
     return <EmptyState message="No expense shares to chart yet." />;
