@@ -982,10 +982,10 @@ export async function getExpenseSharesForCycle(cycleId: string): Promise<Record<
 export async function deleteExpense(expenseId: string): Promise<{ error: string | null }> {
   const supabase = await createClient();
 
-  // Check cycle is open and user owns the expense (or is owner)
+  // Check cycle is open and user owns the expense
   const { data: expense } = await supabase
     .from("expenses")
-    .select("paid_by, billing_cycles!inner(status), household_members!inner(role)")
+    .select("paid_by, billing_cycles!inner(status)")
     .eq("id", expenseId)
     .single();
 
