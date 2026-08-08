@@ -1,4 +1,5 @@
 # RoomMate
+<img width="1920" height="964" alt="image" src="https://github.com/user-attachments/assets/f7dc0bd3-f2cb-4fbe-959f-d6a752f25d18" />
 
 Track. Split. Settle.
 
