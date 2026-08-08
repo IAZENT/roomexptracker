@@ -1972,6 +1972,9 @@ export type PersonalSummary = {
   // totalResponsibility - totalPaid. Positive = you still need to pay this
   // much; negative = you've paid more than your share and are owed back.
   remainingToPay: number;
+  // Same as remainingToPay but excluding fixedBillsShare - for people who
+  // want to see just their variable (room) expenses on their own.
+  remainingToPayVariableOnly: number;
 };
 
 export async function getPersonalSummary(
@@ -1993,6 +1996,7 @@ export async function getPersonalSummary(
     fixedBillsShare: 0,
     totalResponsibility: 0,
     remainingToPay: 0,
+    remainingToPayVariableOnly: 0,
   };
 
   // Get expenses paid by this user
@@ -2149,6 +2153,7 @@ export async function getPersonalSummary(
 
   summary.totalResponsibility = summary.totalOwed + summary.fixedBillsShare;
   summary.remainingToPay = summary.totalResponsibility - paidTowardBalance;
+  summary.remainingToPayVariableOnly = summary.totalOwed - paidTowardBalance;
 
   return summary;
 }

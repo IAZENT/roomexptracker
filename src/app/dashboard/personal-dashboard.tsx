@@ -72,6 +72,7 @@ export function PersonalDashboard({
   currentUserId: string;
 }) {
   const userName = members.find((m) => m.user_id === currentUserId)?.full_name ?? "You";
+  const [includeFixedBills, setIncludeFixedBills] = useState(true);
 
   const [activeTab, setActiveTab] = useState<ChartTab>("overview");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -145,30 +146,58 @@ export function PersonalDashboard({
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">
                 Your total this cycle
-                {summary.fixedBillsShare > 0 && (
+                {includeFixedBills && summary.fixedBillsShare > 0 && (
                   <span className="text-xs"> (incl. fixed bills)</span>
                 )}
               </span>
               <span className="font-medium text-foreground">
-                {currency} {summary.totalResponsibility.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                {currency} {(includeFixedBills ? summary.totalResponsibility : summary.totalOwed).toLocaleString(undefined, { minimumFractionDigits: 2 })}
               </span>
             </div>
           </div>
 
-          <div className="mt-3 rounded-lg bg-secondary px-3 py-2.5">
-            <p className="text-xs text-muted-foreground">
-              {summary.remainingToPay > 0.01
-                ? "Remaining to pay"
-                : summary.remainingToPay < -0.01
-                  ? "You've overpaid by"
-                  : "You're settled up"}
-            </p>
-            {Math.abs(summary.remainingToPay) > 0.01 && (
-              <p className={`text-lg font-semibold ${summary.remainingToPay > 0 ? "text-destructive" : "text-green-700"}`}>
-                {currency} {Math.abs(summary.remainingToPay).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-              </p>
-            )}
-          </div>
+          {summary.fixedBillsShare > 0 && (
+            <div className="mt-3 flex rounded-lg bg-secondary/50 p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setIncludeFixedBills(true)}
+                className={`flex-1 rounded-md py-1.5 transition-colors ${
+                  includeFixedBills ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
+                }`}
+              >
+                With fixed bills
+              </button>
+              <button
+                type="button"
+                onClick={() => setIncludeFixedBills(false)}
+                className={`flex-1 rounded-md py-1.5 transition-colors ${
+                  !includeFixedBills ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
+                }`}
+              >
+                Room expenses only
+              </button>
+            </div>
+          )}
+
+          {(() => {
+            const remaining = includeFixedBills ? summary.remainingToPay : summary.remainingToPayVariableOnly;
+            return (
+              <div className="mt-3 rounded-lg bg-secondary px-3 py-2.5">
+                <p className="text-xs text-muted-foreground">
+                  {remaining > 0.01
+                    ? "Remaining to pay"
+                    : remaining < -0.01
+                      ? "You've overpaid by"
+                      : "You're settled up"}
+                </p>
+                {Math.abs(remaining) > 0.01 && (
+                  <p className={`text-lg font-semibold ${remaining > 0 ? "text-destructive" : "text-green-700"}`}>
+                    {currency} {Math.abs(remaining).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </p>
+                )}
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
 
