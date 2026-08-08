@@ -830,6 +830,7 @@ export type Expense = {
   description: string | null;
   created_at: string;
   metadata: { name: string; cost: number }[] | null;
+  participant_ids: string[] | null;
 };
 
 export type ExpenseShare = {
@@ -854,6 +855,7 @@ export async function addExpense(
   const customSharesRaw = formData.get("customShares") as string;
   const cycleId = formData.get("cycleId") as string;
   const itemsRaw = (formData.get("items") as string) || "";
+  const participantsRaw = (formData.get("participants") as string) || "";
   const values = {
     type,
     amount: amountRaw,
@@ -862,6 +864,19 @@ export async function addExpense(
     customShares: customSharesRaw,
     items: itemsRaw,
   };
+
+  // Who this expense is split among. Empty/absent means "everyone" - only
+  // stored when explicitly narrowed (e.g. excluding a roommate who doesn't
+  // eat meat from a meat purchase).
+  let participantIds: string[] | null = null;
+  if (participantsRaw) {
+    try {
+      const parsed = JSON.parse(participantsRaw) as string[];
+      participantIds = parsed.length > 0 ? parsed : null;
+    } catch {
+      participantIds = null;
+    }
+  }
 
   // Named items (e.g. "Milk", "Rice") are optional - each needs a name and a
   // positive cost. Skip incomplete rows (still-typing) rather than failing.
@@ -913,6 +928,7 @@ export async function addExpense(
       paid_by: paidBy,
       description: description ?? (items ? items.map((i) => i.name).join(", ") : null),
       metadata: items,
+      participant_ids: participantIds,
     })
     .select()
     .single();
@@ -940,12 +956,18 @@ export async function addExpense(
   }
 
   if (shares.length === 0) {
-    // Split based on pays_for coverage
-    const { data: members } = await supabase
+    // Split based on pays_for coverage, restricted to the chosen
+    // participants (if narrowed) - e.g. excluding a roommate who
+    // doesn't eat meat from a meat purchase.
+    const { data: allMembers } = await supabase
       .from("household_members")
       .select("user_id, pays_for")
       .eq("household_id", cycle.household_id)
       .is("left_at", null);
+
+    const members = participantIds
+      ? (allMembers ?? []).filter((m) => participantIds!.includes(m.user_id))
+      : allMembers;
 
     if (members && members.length > 0) {
       shares = splitByCoverage(amount, members);
@@ -1058,6 +1080,7 @@ export async function updateExpense(
     paid_by?: string;
     description?: string | null;
     metadata?: { name: string; cost: number }[] | null;
+    participant_ids?: string[] | null;
   },
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
@@ -1087,17 +1110,23 @@ export async function updateExpense(
   const { error } = await supabase.from("expenses").update(data).eq("id", expenseId);
   if (error) return { error: error.message };
 
-  // Recalculate shares if amount or payer changed (payer determines coverage)
-  // Coverage doesn't depend on who paid, only recalc when amount changes.
-  if (data.amount !== undefined && data.amount !== current.amount) {
-    const { data: members } = await supabase
+  // Coverage doesn't depend on who paid, so only recalc when the amount or
+  // the participant subset changed.
+  const participantsChanged = data.participant_ids !== undefined;
+  if ((data.amount !== undefined && data.amount !== current.amount) || participantsChanged) {
+    const finalAmount = data.amount ?? current.amount;
+    const { data: allMembers } = await supabase
       .from("household_members")
       .select("user_id, pays_for")
       .eq("household_id", current.household_id)
       .is("left_at", null);
 
+    const members = data.participant_ids
+      ? (allMembers ?? []).filter((m) => data.participant_ids!.includes(m.user_id))
+      : allMembers;
+
     if (members && members.length > 0) {
-      const newShares = splitByCoverage(data.amount, members);
+      const newShares = splitByCoverage(finalAmount, members);
       await supabase.from("expense_shares").delete().eq("expense_id", expenseId);
       await supabase.from("expense_shares").insert(
         newShares.map((s) => ({

@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Plus, X } from "lucide-react";
 import { EXPENSE_TYPES, EXPENSE_TYPE_LABELS } from "@/lib/constants";
-import { addExpense, type ExpenseActionState, type CustomExpenseType } from "./actions";
+import { addExpense, type ExpenseActionState, type Member, type CustomExpenseType } from "./actions";
 
 const initialState: ExpenseActionState = { error: null };
 
@@ -24,11 +24,13 @@ type ItemRow = { name: string; cost: string };
 
 export function AddExpenseDialog({
   cycleId,
+  members,
   currentUserId,
   currency,
   customTypes,
 }: {
   cycleId: string;
+  members: Member[];
   currentUserId: string;
   currency: string;
   customTypes: CustomExpenseType[];
@@ -36,11 +38,13 @@ export function AddExpenseDialog({
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState(addExpense, initialState);
   const [items, setItems] = useState<ItemRow[]>([{ name: "", cost: "" }]);
+  const [participants, setParticipants] = useState<Set<string>>(new Set(members.map((m) => m.user_id)));
 
   const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen);
     if (!nextOpen) {
       setItems([{ name: "", cost: "" }]);
+      setParticipants(new Set(members.map((m) => m.user_id)));
     }
   };
 
@@ -50,6 +54,21 @@ export function AddExpenseDialog({
     validItems.length > 0
       ? JSON.stringify(validItems.map((i) => ({ name: i.name.trim(), cost: parseFloat(i.cost) })))
       : "";
+
+  // Only send a participant list when it's narrowed down from everyone -
+  // that's what the server treats as "everyone" by default.
+  const participantsJson =
+    participants.size > 0 && participants.size < members.length
+      ? JSON.stringify([...participants])
+      : "";
+
+  const toggleParticipant = (userId: string) =>
+    setParticipants((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
 
   // Build full type list: defaults + custom
   const allTypes = [
@@ -98,6 +117,7 @@ export function AddExpenseDialog({
         <form
           action={(formData) => {
             formData.set("items", itemsJson);
+            formData.set("participants", participantsJson);
             formData.set("cycleId", cycleId);
             formData.set("amount", itemsTotal.toString());
             formData.set("paidBy", currentUserId);
@@ -167,11 +187,39 @@ export function AddExpenseDialog({
             </span>
           </div>
 
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-sm">Split among</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {members.map((m) => (
+                <button
+                  key={m.user_id}
+                  type="button"
+                  onClick={() => toggleParticipant(m.user_id)}
+                  className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
+                    participants.has(m.user_id)
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background text-foreground border border-border hover:bg-secondary"
+                  }`}
+                >
+                  {m.full_name}
+                  {m.user_id === currentUserId && " (you)"}
+                </button>
+              ))}
+            </div>
+            {participants.size === 0 && (
+              <p className="text-xs text-destructive">Select at least one person.</p>
+            )}
+          </div>
+
           {state.error && (
             <p className="text-sm text-destructive">{state.error}</p>
           )}
 
-          <Button type="submit" className="h-11 w-full rounded-xl text-base" disabled={pending || validItems.length === 0}>
+          <Button
+            type="submit"
+            className="h-11 w-full rounded-xl text-base"
+            disabled={pending || validItems.length === 0 || participants.size === 0}
+          >
             {pending ? "Adding..." : "Add expense"}
           </Button>
         </form>

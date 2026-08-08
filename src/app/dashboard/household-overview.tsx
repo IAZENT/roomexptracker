@@ -140,6 +140,7 @@ export function HouseholdOverview({
             <div className="mt-4">
               <AddExpenseDialog
                 cycleId={currentCycle.id}
+                members={members}
                 currentUserId={currentUserId}
                 currency={household.currency}
                 customTypes={customTypes}
@@ -200,6 +201,7 @@ export function HouseholdOverview({
                 <CardTitle className="text-base">Current cycle</CardTitle>
                 <AddExpenseDialog
                   cycleId={currentCycle.id}
+                  members={members}
                   currentUserId={currentUserId}
                   currency={household.currency}
                   customTypes={customTypes}
@@ -631,6 +633,8 @@ export function HouseholdOverview({
           initialPaidBy={editingExpense.paid_by}
           initialDescription={editingExpense.description ?? ""}
           initialMetadata={editingExpense.metadata ?? null}
+          initialParticipantIds={editingExpense.participant_ids ?? null}
+          members={members}
           currency={household.currency}
           customTypes={customTypes}
           open={!!editingExpense}

@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Plus, X } from "lucide-react";
 import { EXPENSE_TYPE_LABELS } from "@/lib/constants";
-import { updateExpense, deleteExpense, type CustomExpenseType } from "./actions";
+import { updateExpense, deleteExpense, type Member, type CustomExpenseType } from "./actions";
 
 type ItemRow = { name: string; cost: string };
 
@@ -24,6 +24,8 @@ export function EditExpenseDialog({
   initialType,
   initialPaidBy,
   initialMetadata,
+  initialParticipantIds,
+  members,
   currency,
   customTypes,
   open,
@@ -35,6 +37,8 @@ export function EditExpenseDialog({
   initialPaidBy: string;
   initialDescription: string;
   initialMetadata: { name: string; cost: number }[] | null;
+  initialParticipantIds: string[] | null;
+  members: Member[];
   currency: string;
   customTypes: CustomExpenseType[];
   open: boolean;
@@ -45,6 +49,9 @@ export function EditExpenseDialog({
     initialMetadata && initialMetadata.length > 0
       ? initialMetadata.map((i) => ({ name: i.name, cost: i.cost.toString() }))
       : [{ name: "", cost: "" }],
+  );
+  const [participants, setParticipants] = useState<Set<string>>(
+    new Set(initialParticipantIds && initialParticipantIds.length > 0 ? initialParticipantIds : members.map((m) => m.user_id)),
   );
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -63,8 +70,16 @@ export function EditExpenseDialog({
   const updateItemRow = (index: number, field: keyof ItemRow, value: string) =>
     setItems((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
 
+  const toggleParticipant = (userId: string) =>
+    setParticipants((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+
   const handleSave = async () => {
-    if (!type || validItems.length === 0) return;
+    if (!type || validItems.length === 0 || participants.size === 0) return;
 
     setSaving(true);
     const metadata = validItems.map((i) => ({ name: i.name.trim(), cost: parseFloat(i.cost) }));
@@ -74,6 +89,7 @@ export function EditExpenseDialog({
       paid_by: initialPaidBy,
       description: metadata.map((i) => i.name).join(", "),
       metadata,
+      participant_ids: participants.size < members.length ? [...participants] : null,
     });
     setSaving(false);
 
@@ -168,6 +184,29 @@ export function EditExpenseDialog({
             </span>
           </div>
 
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-sm">Split among</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {members.map((m) => (
+                <button
+                  key={m.user_id}
+                  type="button"
+                  onClick={() => toggleParticipant(m.user_id)}
+                  className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
+                    participants.has(m.user_id)
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background text-foreground border border-border hover:bg-secondary"
+                  }`}
+                >
+                  {m.full_name}
+                </button>
+              ))}
+            </div>
+            {participants.size === 0 && (
+              <p className="text-xs text-destructive">Select at least one person.</p>
+            )}
+          </div>
+
           <div className="flex gap-2">
             <Button
               variant="destructive"
@@ -179,7 +218,7 @@ export function EditExpenseDialog({
             </Button>
             <Button
               className="flex-1"
-              disabled={saving || validItems.length === 0}
+              disabled={saving || validItems.length === 0 || participants.size === 0}
               onClick={handleSave}
             >
               {saving ? "Saving..." : "Save changes"}
