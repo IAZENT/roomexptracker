@@ -226,9 +226,9 @@ export function HouseholdOverview({
                   </div>
                   {members.length > 0 && (
                     <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Per person</span>
+                      <span className="text-muted-foreground">Your share</span>
                       <span className="font-medium text-foreground">
-                        {household.currency} {(cycleTotal / members.length).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {household.currency} {(summary.totalByMember[currentUserId] ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </div>
                   )}
@@ -370,7 +370,9 @@ export function HouseholdOverview({
                     const payer = members.find((m) => m.user_id === expense.paid_by);
                     const shares = expenseShares[expense.id] ?? [];
                     const currentUserShare = shares.find((s) => s.user_id === currentUserId);
-                    const perPerson = currentUserShare?.share_amount ?? (members.length > 0 ? expense.amount / members.length : 0);
+                    // Not a uniform "per person" split - pays_for coverage can make shares
+                    // unequal, so this is specifically what the viewer owes for this expense.
+                    const yourShare = currentUserShare?.share_amount ?? (members.length > 0 ? expense.amount / members.length : 0);
                     const isExpanded = expandedExpenses.has(expense.id);
                     const hasItems = expense.metadata && expense.metadata.length > 0;
                     return (
@@ -406,7 +408,7 @@ export function HouseholdOverview({
                                 {household.currency} {expense.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                               </span>
                               <span className="text-xs text-muted-foreground">
-                                {household.currency} {perPerson.toLocaleString(undefined, { minimumFractionDigits: 2 })} / person
+                                {household.currency} {yourShare.toLocaleString(undefined, { minimumFractionDigits: 2 })} your share
                               </span>
                             </div>
                           {expense.paid_by === currentUserId && (
